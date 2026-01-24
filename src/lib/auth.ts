@@ -25,15 +25,32 @@ interface CachedToken {
 }
 
 const TOKEN_CACHE_FILE = join(homedir(), '.config', 'clippy', 'token-cache.json');
-const TOKEN_TTL = 55 * 60 * 1000; // 55 minutes (tokens typically expire in 1 hour)
+const REFRESH_THRESHOLD = 5 * 60 * 1000; // Refresh if less than 5 minutes remaining
 
-async function getCachedToken(): Promise<CachedToken | null> {
+function getJwtExpiration(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    return payload.exp ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getCachedToken(): Promise<{ cached: CachedToken; needsRefresh: boolean } | null> {
   try {
     const data = await readFile(TOKEN_CACHE_FILE, 'utf-8');
     const cached = JSON.parse(data) as CachedToken;
-    if (cached.expiresAt > Date.now()) {
-      return cached;
+    const now = Date.now();
+
+    if (cached.expiresAt <= now) {
+      return null; // Expired
     }
+
+    // Check if we need to refresh soon
+    const needsRefresh = (cached.expiresAt - now) < REFRESH_THRESHOLD;
+    return { cached, needsRefresh };
   } catch {
     // No cache or invalid cache
   }
@@ -44,10 +61,14 @@ async function setCachedToken(token: string, graphToken?: string): Promise<void>
   try {
     const cacheDir = join(homedir(), '.config', 'clippy');
     await mkdir(cacheDir, { recursive: true });
+
+    // Use actual JWT expiration time
+    const expiresAt = getJwtExpiration(token) || (Date.now() + 55 * 60 * 1000);
+
     const cached: CachedToken = {
       token,
       graphToken,
-      expiresAt: Date.now() + TOKEN_TTL,
+      expiresAt,
     };
     await writeFile(TOKEN_CACHE_FILE, JSON.stringify(cached), 'utf-8');
   } catch {
@@ -203,10 +224,23 @@ export async function resolveAuth(options: {
   }
 
   // Priority 3: Cached token (fast path - no browser needed)
-  const cached = await getCachedToken();
-  if (cached) {
+  const cachedResult = await getCachedToken();
+  if (cachedResult) {
+    const { cached, needsRefresh } = cachedResult;
     const isValid = await validateSession(cached.token);
+
     if (isValid) {
+      // If token is expiring soon, refresh in background (silent)
+      if (needsRefresh && interactive) {
+        extractTokenViaPlaywright({ headless: true, timeout: 10000 })
+          .then(result => {
+            if (result.success && result.token) {
+              setCachedToken(result.token, result.graphToken);
+            }
+          })
+          .catch(() => {}); // Ignore refresh errors
+      }
+
       return {
         success: true,
         token: cached.token,
