@@ -1210,6 +1210,56 @@ export async function updateEmail(
   }
 }
 
+/**
+ * Move an email to a different folder.
+ */
+export async function moveEmail(
+  token: string,
+  messageId: string,
+  destinationFolder: string
+): Promise<OwaResponse<EmailMessage>> {
+  const url = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(messageId)}/move`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        DestinationId: destinationFolder,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as EmailMessage;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export type ResponseType = 'accept' | 'decline' | 'tentative';
 
 export interface RespondToEventOptions {

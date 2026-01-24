@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { resolveAuth } from '../lib/auth.js';
-import { getEmails, getEmail, getAttachments, getAttachment, updateEmail } from '../lib/owa-client.js';
+import { getEmails, getEmail, getAttachments, getAttachment, updateEmail, moveEmail } from '../lib/owa-client.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 
@@ -44,6 +44,8 @@ export const mailCommand = new Command('mail')
   .option('--flag <index>', 'Flag email')
   .option('--unflag <index>', 'Remove flag from email')
   .option('--complete <index>', 'Mark flagged email as complete')
+  .option('--move <index>', 'Move email to folder (use with --to)')
+  .option('--to <folder>', 'Destination folder for move (inbox, archive, deleted, junk)')
   .option('--json', 'Output as JSON')
   .option('--token <token>', 'Use a specific token')
   .option('-i, --interactive', 'Open browser to extract token automatically')
@@ -61,6 +63,8 @@ export const mailCommand = new Command('mail')
     flag?: string;
     unflag?: string;
     complete?: string;
+    move?: string;
+    to?: string;
     json?: boolean;
     token?: string;
     interactive?: boolean;
@@ -304,6 +308,53 @@ export const mailCommand = new Command('mail')
       }
 
       console.log(`\u2713 ${actionLabel}: ${email.Subject}`);
+      return;
+    }
+
+    // Handle move
+    if (options.move) {
+      if (!options.to) {
+        console.error('Please specify destination folder with --to');
+        console.error('Example: clippy mail --move 1 --to archive');
+        console.error('Folders: inbox, archive, deleted, junk, drafts, sent');
+        process.exit(1);
+      }
+
+      const idx = parseInt(options.move) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
+        console.error(`Invalid email number: ${options.move}`);
+        console.error(`Valid range: 1-${emails.length}`);
+        process.exit(1);
+      }
+
+      const email = emails[idx];
+
+      // Map folder names to API folder IDs
+      const destFolderMap: Record<string, string> = {
+        inbox: 'inbox',
+        archive: 'archive',
+        deleted: 'deleteditems',
+        deleteditems: 'deleteditems',
+        trash: 'deleteditems',
+        junk: 'junkemail',
+        junkemail: 'junkemail',
+        spam: 'junkemail',
+        drafts: 'drafts',
+        sent: 'sentitems',
+        sentitems: 'sentitems',
+      };
+
+      const destFolder = destFolderMap[options.to.toLowerCase()] || options.to;
+
+      const result = await moveEmail(authResult.token!, email.Id, destFolder);
+
+      if (!result.ok) {
+        console.error(`Error: ${result.error?.message || 'Failed to move email'}`);
+        process.exit(1);
+      }
+
+      const folderDisplay = options.to.charAt(0).toUpperCase() + options.to.slice(1);
+      console.log(`\u2713 Moved to ${folderDisplay}: ${email.Subject}`);
       return;
     }
 
