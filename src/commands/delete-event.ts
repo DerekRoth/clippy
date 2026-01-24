@@ -32,7 +32,8 @@ function parseDay(day: string): Date {
 
 export const deleteEventCommand = new Command('delete-event')
   .description('Delete/cancel a calendar event (sends cancellation if there are attendees)')
-  .argument('[eventIndex]', 'Event index from the list (1-based)')
+  .argument('[eventIndex]', 'Event index from the list (deprecated; use --id)')
+  .option('--id <eventId>', 'Delete event by stable ID')
   .option('--day <day>', 'Day to show events from (today, tomorrow, YYYY-MM-DD)', 'today')
   .option('--search <text>', 'Search for events by title')
   .option('--message <text>', 'Cancellation message to send to attendees')
@@ -94,8 +95,8 @@ export const deleteEventCommand = new Command('delete-event')
       events = events.filter(e => e.Subject?.toLowerCase().includes(searchLower));
     }
 
-    // If no index provided, list events
-    if (!eventIndex) {
+    // If no id provided, list events
+    if (!options.id) {
       if (options.json) {
         console.log(JSON.stringify({
           events: events.map((e, i) => ({
@@ -128,6 +129,7 @@ export const deleteEventCommand = new Command('delete-event')
 
         console.log(`\n  [${i + 1}] ${event.Subject}`);
         console.log(`      ${startTime} - ${endTime}`);
+        console.log(`      ID: ${event.Id}`);
         if (event.Location?.DisplayName) {
           console.log(`      Location: ${event.Location.DisplayName}`);
         }
@@ -145,15 +147,18 @@ export const deleteEventCommand = new Command('delete-event')
       return;
     }
 
-    // Delete the specified event
-    const idx = parseInt(eventIndex) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= events.length) {
-      console.error(`Invalid event number: ${eventIndex}`);
-      console.error(`Valid range: 1-${events.length}`);
+    // Delete the specified event by ID
+    if (!options.id) {
+      console.error('Please specify the event id with --id.');
+      console.error('Run `clippy delete-event` to list events and IDs.');
       process.exit(1);
     }
 
-    const targetEvent = events[idx];
+    const targetEvent = events.find(e => e.Id === options.id);
+    if (!targetEvent) {
+      console.error(`Invalid event id: ${options.id}`);
+      process.exit(1);
+    }
 
     // Check if event has attendees (other than organizer)
     const attendees = targetEvent.Attendees?.filter(a =>

@@ -64,7 +64,8 @@ function toLocalISOString(date: Date): string {
 
 export const updateEventCommand = new Command('update-event')
   .description('Update a calendar event')
-  .argument('[eventIndex]', 'Event index from the list (1-based)')
+  .argument('[eventIndex]', 'Event index from the list (deprecated; use --id)')
+  .option('--id <eventId>', 'Update event by stable ID')
   .option('--day <day>', 'Day to show events from (today, tomorrow, YYYY-MM-DD)', 'today')
   .option('--title <text>', 'New title/subject')
   .option('--description <text>', 'New description/body')
@@ -132,8 +133,8 @@ export const updateEventCommand = new Command('update-event')
     // Filter to events the user owns
     const events = result.data.filter(e => e.IsOrganizer && !e.IsCancelled);
 
-    // If no index provided, list events
-    if (!eventIndex) {
+    // If no id provided, list events
+    if (!options.id) {
       if (options.json) {
         console.log(JSON.stringify({
           events: events.map((e, i) => ({
@@ -164,6 +165,7 @@ export const updateEventCommand = new Command('update-event')
 
         console.log(`\n  [${i + 1}] ${event.Subject}`);
         console.log(`      ${startTime} - ${endTime}`);
+        console.log(`      ID: ${event.Id}`);
         if (event.Location?.DisplayName) {
           console.log(`      Location: ${event.Location.DisplayName}`);
         }
@@ -188,15 +190,18 @@ export const updateEventCommand = new Command('update-event')
       return;
     }
 
-    // Get the target event
-    const idx = parseInt(eventIndex) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= events.length) {
-      console.error(`Invalid event number: ${eventIndex}`);
-      console.error(`Valid range: 1-${events.length}`);
+    // Get the target event by ID
+    if (!options.id) {
+      console.error('Please specify the event id with --id.');
+      console.error('Run `clippy update-event` to list events and IDs.');
       process.exit(1);
     }
 
-    const targetEvent = events[idx];
+    const targetEvent = events.find(e => e.Id === options.id);
+    if (!targetEvent) {
+      console.error(`Invalid event id: ${options.id}`);
+      process.exit(1);
+    }
 
     // Check if any update options were provided
     const hasUpdates = options.title || options.description || options.start ||

@@ -304,11 +304,11 @@ async function addAttachmentToDraft(
 export const draftsCommand = new Command('drafts')
   .description('Manage email drafts')
   .option('-n, --limit <number>', 'Number of drafts to show', '10')
-  .option('-r, --read <index>', 'Read draft at index (1-based)')
+  .option('-r, --read <id>', 'Read draft by ID')
   .option('--create', 'Create a new draft')
-  .option('--edit <index>', 'Edit draft at index')
-  .option('--send <index>', 'Send draft at index')
-  .option('--delete <index>', 'Delete draft at index')
+  .option('--edit <id>', 'Edit draft by ID')
+  .option('--send <id>', 'Send draft by ID')
+  .option('--delete <id>', 'Delete draft by ID')
   .option('--to <emails>', 'Recipient(s) for create/edit, comma-separated')
   .option('--cc <emails>', 'CC recipient(s), comma-separated')
   .option('--subject <text>', 'Subject for create/edit')
@@ -440,14 +440,8 @@ export const draftsCommand = new Command('drafts')
 
     // Handle read
     if (options.read) {
-      const idx = parseInt(options.read) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= drafts.length) {
-        console.error(`Invalid draft number: ${options.read}`);
-        process.exit(1);
-      }
-
-      const draft = drafts[idx];
-      const fullDraft = await getEmail(authResult.token!, draft.Id);
+      const id = options.read.trim();
+      const fullDraft = await getEmail(authResult.token!, id);
 
       if (!fullDraft.ok || !fullDraft.data) {
         console.error(`Error: ${fullDraft.error?.message || 'Failed to fetch draft'}`);
@@ -472,13 +466,7 @@ export const draftsCommand = new Command('drafts')
 
     // Handle edit
     if (options.edit) {
-      const idx = parseInt(options.edit) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= drafts.length) {
-        console.error(`Invalid draft number: ${options.edit}`);
-        process.exit(1);
-      }
-
-      const draft = drafts[idx];
+      const id = options.edit.trim();
       const toList = options.to ? options.to.split(',').map(e => e.trim()).filter(Boolean) : undefined;
       const ccList = options.cc ? options.cc.split(',').map(e => e.trim()).filter(Boolean) : undefined;
 
@@ -490,7 +478,7 @@ export const draftsCommand = new Command('drafts')
         bodyType = 'HTML';
       }
 
-      const result = await updateDraft(authResult.token!, draft.Id, {
+      const result = await updateDraft(authResult.token!, id, {
         to: toList,
         cc: ccList,
         subject: options.subject,
@@ -512,7 +500,7 @@ export const draftsCommand = new Command('drafts')
             const fileName = basename(filePath);
             const contentType = lookup(filePath) || 'application/octet-stream';
 
-            await addAttachmentToDraft(authResult.token!, draft.Id, {
+            await addAttachmentToDraft(authResult.token!, id, {
               name: fileName,
               contentType,
               contentBytes: content.toString('base64'),
@@ -527,47 +515,35 @@ export const draftsCommand = new Command('drafts')
         }
       }
 
-      console.log(`\u2713 Draft updated: ${draft.Subject || '(no subject)'}`);
+      console.log(`\u2713 Draft updated: ${id}`);
       return;
     }
 
     // Handle send
     if (options.send) {
-      const idx = parseInt(options.send) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= drafts.length) {
-        console.error(`Invalid draft number: ${options.send}`);
-        process.exit(1);
-      }
-
-      const draft = drafts[idx];
-      const result = await sendDraft(authResult.token!, draft.Id);
+      const id = options.send.trim();
+      const result = await sendDraft(authResult.token!, id);
 
       if (!result.ok) {
         console.error(`Error: ${result.error?.message || 'Failed to send draft'}`);
         process.exit(1);
       }
 
-      console.log(`\u2713 Draft sent: ${draft.Subject || '(no subject)'}`);
+      console.log(`\u2713 Draft sent: ${id}`);
       return;
     }
 
     // Handle delete
     if (options.delete) {
-      const idx = parseInt(options.delete) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= drafts.length) {
-        console.error(`Invalid draft number: ${options.delete}`);
-        process.exit(1);
-      }
-
-      const draft = drafts[idx];
-      const result = await deleteDraft(authResult.token!, draft.Id);
+      const id = options.delete.trim();
+      const result = await deleteDraft(authResult.token!, id);
 
       if (!result.ok) {
         console.error(`Error: ${result.error?.message || 'Failed to delete draft'}`);
         process.exit(1);
       }
 
-      console.log(`\u2713 Draft deleted: ${draft.Subject || '(no subject)'}`);
+      console.log(`\u2713 Draft deleted: ${id}`);
       return;
     }
 
@@ -601,14 +577,15 @@ export const draftsCommand = new Command('drafts')
       const date = draft.ReceivedDateTime ? formatDate(draft.ReceivedDateTime) : '';
 
       console.log(`  [${(i + 1).toString().padStart(2)}] ${truncate(to, 25).padEnd(25)} ${truncate(subject, 32).padEnd(32)} ${date}`);
+      console.log(`       ID: ${draft.Id}`);
     }
 
     console.log('\n' + '\u2500'.repeat(70));
     console.log('\nCommands:');
-    console.log('  clippy drafts -r <number>              # Read draft');
+    console.log('  clippy drafts -r <id>                  # Read draft');
     console.log('  clippy drafts --create --to "..." --subject "..." --body "..."');
-    console.log('  clippy drafts --edit <number> --body "new text"');
-    console.log('  clippy drafts --send <number>          # Send draft');
-    console.log('  clippy drafts --delete <number>        # Delete draft');
+    console.log('  clippy drafts --edit <id> --body "new text"');
+    console.log('  clippy drafts --send <id>              # Send draft');
+    console.log('  clippy drafts --delete <id>            # Delete draft');
     console.log();
   });

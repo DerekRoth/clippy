@@ -37,19 +37,19 @@ export const mailCommand = new Command('mail')
   .option('--unread', 'Show only unread emails')
   .option('--flagged', 'Show only flagged emails')
   .option('-s, --search <query>', 'Search emails (subject, body, sender)')
-  .option('-r, --read <index>', 'Read email at index (1-based)')
-  .option('-d, --download <index>', 'Download attachments from email at index')
+  .option('-r, --read <id>', 'Read email by ID')
+  .option('-d, --download <id>', 'Download attachments from email by ID')
   .option('-o, --output <dir>', 'Output directory for attachments', '.')
-  .option('--mark-read <index>', 'Mark email as read')
-  .option('--mark-unread <index>', 'Mark email as unread')
-  .option('--flag <index>', 'Flag email')
-  .option('--unflag <index>', 'Remove flag from email')
-  .option('--complete <index>', 'Mark flagged email as complete')
-  .option('--move <index>', 'Move email to folder (use with --to)')
+  .option('--mark-read <id>', 'Mark email as read (by ID)')
+  .option('--mark-unread <id>', 'Mark email as unread (by ID)')
+  .option('--flag <id>', 'Flag email (by ID)')
+  .option('--unflag <id>', 'Remove flag (by ID)')
+  .option('--complete <id>', 'Mark flagged email as complete (by ID)')
+  .option('--move <id>', 'Move email to folder (use with --to)')
   .option('--to <folder>', 'Destination folder for move (inbox, archive, deleted, junk)')
-  .option('--reply <index>', 'Reply to email at index')
-  .option('--reply-all <index>', 'Reply all to email at index')
-  .option('--forward <index>', 'Forward email at index (use with --to-addr)')
+  .option('--reply <id>', 'Reply to email by ID')
+  .option('--reply-all <id>', 'Reply all to email by ID')
+  .option('--forward <id>', 'Forward email by ID (use with --to-addr)')
   .option('--to-addr <emails>', 'Forward recipients (comma-separated)')
   .option('--message <text>', 'Reply/forward message text')
   .option('--markdown', 'Parse message as markdown (bold, links, lists)')
@@ -168,15 +168,8 @@ export const mailCommand = new Command('mail')
 
     // Handle reading a specific email
     if (options.read) {
-      const idx = parseInt(options.read) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
-        console.error(`Invalid email number: ${options.read}`);
-        console.error(`Valid range: 1-${emails.length}`);
-        process.exit(1);
-      }
-
-      const emailSummary = emails[idx];
-      const fullEmail = await getEmail(authResult.token!, emailSummary.Id);
+      const id = options.read.trim();
+      const fullEmail = await getEmail(authResult.token!, id);
 
       if (!fullEmail.ok || !fullEmail.data) {
         console.error(`Error: ${fullEmail.error?.message || 'Failed to fetch email'}`);
@@ -230,21 +223,19 @@ export const mailCommand = new Command('mail')
 
     // Handle downloading attachments
     if (options.download) {
-      const idx = parseInt(options.download) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
-        console.error(`Invalid email number: ${options.download}`);
-        console.error(`Valid range: 1-${emails.length}`);
+      const id = options.download.trim();
+      const emailSummary = await getEmail(authResult.token!, id);
+      if (!emailSummary.ok || !emailSummary.data) {
+        console.error(`Error: ${emailSummary.error?.message || 'Failed to fetch email'}`);
         process.exit(1);
       }
 
-      const emailSummary = emails[idx];
-
-      if (!emailSummary.HasAttachments) {
+      if (!emailSummary.data.HasAttachments) {
         console.log('This email has no attachments.');
         return;
       }
 
-      const attachmentsResult = await getAttachments(authResult.token!, emailSummary.Id);
+      const attachmentsResult = await getAttachments(authResult.token!, emailSummary.data.Id);
       if (!attachmentsResult.ok || !attachmentsResult.data) {
         console.error(`Error: ${attachmentsResult.error?.message || 'Failed to fetch attachments'}`);
         process.exit(1);
@@ -284,39 +275,23 @@ export const mailCommand = new Command('mail')
 
     // Handle mark as read/unread
     if (options.markRead || options.markUnread) {
-      const idxStr = options.markRead || options.markUnread;
-      const idx = parseInt(idxStr!) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
-        console.error(`Invalid email number: ${idxStr}`);
-        console.error(`Valid range: 1-${emails.length}`);
-        process.exit(1);
-      }
-
-      const email = emails[idx];
+      const id = (options.markRead || options.markUnread)!.trim();
       const isRead = !!options.markRead;
 
-      const result = await updateEmail(authResult.token!, email.Id, { IsRead: isRead });
+      const result = await updateEmail(authResult.token!, id, { IsRead: isRead });
 
       if (!result.ok) {
         console.error(`Error: ${result.error?.message || 'Failed to update email'}`);
         process.exit(1);
       }
 
-      console.log(`\u2713 Marked as ${isRead ? 'read' : 'unread'}: ${email.Subject}`);
+      console.log(`\u2713 Marked as ${isRead ? 'read' : 'unread'}: ${id}`);
       return;
     }
 
     // Handle flag/unflag/complete
     if (options.flag || options.unflag || options.complete) {
-      const idxStr = options.flag || options.unflag || options.complete;
-      const idx = parseInt(idxStr!) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
-        console.error(`Invalid email number: ${idxStr}`);
-        console.error(`Valid range: 1-${emails.length}`);
-        process.exit(1);
-      }
-
-      const email = emails[idx];
+      const id = (options.flag || options.unflag || options.complete)!.trim();
       let flagStatus: 'NotFlagged' | 'Flagged' | 'Complete';
       let actionLabel: string;
 
@@ -331,7 +306,7 @@ export const mailCommand = new Command('mail')
         actionLabel = 'Unflagged';
       }
 
-      const result = await updateEmail(authResult.token!, email.Id, {
+      const result = await updateEmail(authResult.token!, id, {
         Flag: { FlagStatus: flagStatus },
       });
 
@@ -340,7 +315,7 @@ export const mailCommand = new Command('mail')
         process.exit(1);
       }
 
-      console.log(`\u2713 ${actionLabel}: ${email.Subject}`);
+      console.log(`\u2713 ${actionLabel}: ${id}`);
       return;
     }
 
@@ -348,19 +323,12 @@ export const mailCommand = new Command('mail')
     if (options.move) {
       if (!options.to) {
         console.error('Please specify destination folder with --to');
-        console.error('Example: clippy mail --move 1 --to archive');
+        console.error('Example: clippy mail --move <id> --to archive');
         console.error('Folders: inbox, archive, deleted, junk, drafts, sent');
         process.exit(1);
       }
 
-      const idx = parseInt(options.move) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
-        console.error(`Invalid email number: ${options.move}`);
-        console.error(`Valid range: 1-${emails.length}`);
-        process.exit(1);
-      }
-
-      const email = emails[idx];
+      const id = options.move.trim();
 
       // Map folder names to API folder IDs
       const destFolderMap: Record<string, string> = {
@@ -399,7 +367,7 @@ export const mailCommand = new Command('mail')
         }
       }
 
-      const result = await moveEmail(authResult.token!, email.Id, destFolder);
+      const result = await moveEmail(authResult.token!, id, destFolder);
 
       if (!result.ok) {
         console.error(`Error: ${result.error?.message || 'Failed to move email'}`);
@@ -407,27 +375,20 @@ export const mailCommand = new Command('mail')
       }
 
       const folderDisplay = options.to.charAt(0).toUpperCase() + options.to.slice(1);
-      console.log(`\u2713 Moved to ${folderDisplay}: ${email.Subject}`);
+      console.log(`\u2713 Moved to ${folderDisplay}: ${id}`);
       return;
     }
 
     // Handle reply
     if (options.reply || options.replyAll) {
-      const idxStr = options.reply || options.replyAll;
-      const idx = parseInt(idxStr!) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
-        console.error(`Invalid email number: ${idxStr}`);
-        console.error(`Valid range: 1-${emails.length}`);
-        process.exit(1);
-      }
+      const id = (options.reply || options.replyAll)!.trim();
 
       if (!options.message) {
         console.error('Please provide reply text with --message');
-        console.error('Example: clippy mail --reply 1 --message "Thanks for your email!"');
+        console.error('Example: clippy mail --reply <id> --message "Thanks for your email!"');
         process.exit(1);
       }
 
-      const email = emails[idx];
       const isReplyAll = !!options.replyAll;
 
       let message = options.message;
@@ -440,7 +401,7 @@ export const mailCommand = new Command('mail')
 
       const result = await replyToEmail(
         authResult.token!,
-        email.Id,
+        id,
         message,
         isReplyAll,
         isHtml
@@ -452,31 +413,25 @@ export const mailCommand = new Command('mail')
       }
 
       const replyType = isReplyAll ? 'Reply all' : 'Reply';
-      console.log(`\u2713 ${replyType} sent to: ${email.Subject}`);
+      console.log(`\u2713 ${replyType} sent to: ${id}`);
       return;
     }
 
     // Handle forward
     if (options.forward) {
-      const idx = parseInt(options.forward) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
-        console.error(`Invalid email number: ${options.forward}`);
-        console.error(`Valid range: 1-${emails.length}`);
-        process.exit(1);
-      }
+      const id = options.forward.trim();
 
       if (!options.toAddr) {
         console.error('Please provide forward recipients with --to-addr');
-        console.error('Example: clippy mail --forward 1 --to-addr "user@example.com"');
+        console.error('Example: clippy mail --forward <id> --to-addr "user@example.com"');
         process.exit(1);
       }
 
-      const email = emails[idx];
       const recipients = options.toAddr.split(',').map(e => e.trim()).filter(Boolean);
 
       const result = await forwardEmail(
         authResult.token!,
-        email.Id,
+        id,
         recipients,
         options.message
       );
@@ -486,7 +441,7 @@ export const mailCommand = new Command('mail')
         process.exit(1);
       }
 
-      console.log(`\u2713 Forwarded to ${recipients.join(', ')}: ${email.Subject}`);
+      console.log(`\u2713 Forwarded to ${recipients.join(', ')}: ${id}`);
       return;
     }
 
@@ -542,11 +497,12 @@ export const mailCommand = new Command('mail')
       const subjectTrunc = truncate(subject, 35);
 
       console.log(`  [${idx.toString().padStart(2)}] ${marks} ${fromTrunc.padEnd(20)} ${subjectTrunc.padEnd(35)} ${date}`);
+      console.log(`       ID: ${email.Id}`);
     }
 
     console.log('\n' + '\u2500'.repeat(70));
     console.log('\nCommands:');
-    console.log(`  clippy mail -r <number>           # Read email`);
+    console.log(`  clippy mail -r <id>               # Read email`);
     console.log(`  clippy mail -p ${page + 1}                   # Next page`);
     console.log(`  clippy mail --unread              # Only unread`);
     console.log(`  clippy mail -s "keyword"          # Search emails`);

@@ -159,9 +159,6 @@ export const respondCommand = new Command('respond')
 
       console.log('\n' + '\u2500'.repeat(60));
       console.log('\nTo respond, use:');
-      console.log('  clippy respond accept <number>');
-      console.log('  clippy respond decline <number>');
-      console.log('  clippy respond tentative <number>');
       console.log('  clippy respond accept --id <eventId>');
       console.log('  clippy respond decline --id <eventId>');
       console.log('  clippy respond tentative --id <eventId>');
@@ -176,28 +173,16 @@ export const respondCommand = new Command('respond')
       process.exit(1);
     }
 
-    let targetEvent;
-    if (options.id) {
-      targetEvent = pendingEvents.find(e => e.Id === options.id);
-      if (!targetEvent) {
-        console.error(`Invalid event id: ${options.id}`);
-        process.exit(1);
-      }
-    } else {
-      if (!eventIndex) {
-        console.error('Please specify the event number to respond to.');
-        console.error('Run `clippy respond list` to see pending invitations.');
-        process.exit(1);
-      }
+    if (!options.id) {
+      console.error('Please specify the event id with --id.');
+      console.error('Run `clippy respond list` to see pending invitations and IDs.');
+      process.exit(1);
+    }
 
-      const idx = parseInt(eventIndex) - 1;
-      if (isNaN(idx) || idx < 0 || idx >= pendingEvents.length) {
-        console.error(`Invalid event number: ${eventIndex}`);
-        console.error(`Valid range: 1-${pendingEvents.length}`);
-        process.exit(1);
-      }
-
-      targetEvent = pendingEvents[idx];
+    const targetEvent = pendingEvents.find(e => e.Id === options.id);
+    if (!targetEvent) {
+      console.error(`Invalid event id: ${options.id}`);
+      process.exit(1);
     }
 
     console.log(`\nResponding to: ${targetEvent.Subject}`);
