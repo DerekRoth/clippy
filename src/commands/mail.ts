@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { resolveAuth } from '../lib/auth.js';
-import { getEmails, getEmail, getAttachments, getAttachment, updateEmail, moveEmail } from '../lib/owa-client.js';
+import { getEmails, getEmail, getAttachments, getAttachment, updateEmail, moveEmail, getMailFolders } from '../lib/owa-client.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 
@@ -99,7 +99,27 @@ export const mailCommand = new Command('mail')
       spam: 'junkemail',
     };
 
-    const apiFolder = folderMap[folder.toLowerCase()] || folder;
+    let apiFolder = folderMap[folder.toLowerCase()];
+
+    // If not a well-known folder, look up by name
+    if (!apiFolder) {
+      const foldersResult = await getMailFolders(authResult.token!);
+      if (foldersResult.ok && foldersResult.data) {
+        const found = foldersResult.data.value.find(
+          f => f.DisplayName.toLowerCase() === folder.toLowerCase()
+        );
+        if (found) {
+          apiFolder = found.Id;
+        } else {
+          console.error(`Folder "${folder}" not found.`);
+          console.error('Use "clippy folders" to see available folders.');
+          process.exit(1);
+        }
+      } else {
+        apiFolder = folder; // Fallback to using the name directly
+      }
+    }
+
     const limit = parseInt(options.limit) || 10;
     const page = parseInt(options.page) || 1;
     const skip = (page - 1) * limit;
@@ -344,7 +364,27 @@ export const mailCommand = new Command('mail')
         sentitems: 'sentitems',
       };
 
-      const destFolder = destFolderMap[options.to.toLowerCase()] || options.to;
+      let destFolder = destFolderMap[options.to.toLowerCase()];
+
+      // If not a well-known folder, look up by name
+      if (!destFolder) {
+        const foldersResult = await getMailFolders(authResult.token!);
+        if (foldersResult.ok && foldersResult.data) {
+          const found = foldersResult.data.value.find(
+            f => f.DisplayName.toLowerCase() === options.to!.toLowerCase()
+          );
+          if (found) {
+            destFolder = found.Id;
+          } else {
+            console.error(`Folder "${options.to}" not found.`);
+            console.error('Use "clippy folders" to see available folders.');
+            process.exit(1);
+          }
+        } else {
+          console.error('Failed to look up folder.');
+          process.exit(1);
+        }
+      }
 
       const result = await moveEmail(authResult.token!, email.Id, destFolder);
 

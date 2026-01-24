@@ -1260,6 +1260,206 @@ export async function moveEmail(
   }
 }
 
+// Folder types
+export interface MailFolder {
+  Id: string;
+  DisplayName: string;
+  ParentFolderId?: string;
+  ChildFolderCount: number;
+  UnreadItemCount: number;
+  TotalItemCount: number;
+}
+
+export interface MailFolderListResponse {
+  value: MailFolder[];
+}
+
+/**
+ * Get list of mail folders.
+ */
+export async function getMailFolders(
+  token: string,
+  parentFolderId?: string
+): Promise<OwaResponse<MailFolderListResponse>> {
+  const url = parentFolderId
+    ? `https://outlook.office.com/api/v2.0/me/mailfolders/${encodeURIComponent(parentFolderId)}/childfolders`
+    : 'https://outlook.office.com/api/v2.0/me/mailfolders?$top=100';
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as MailFolderListResponse;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Create a new mail folder.
+ */
+export async function createMailFolder(
+  token: string,
+  displayName: string,
+  parentFolderId?: string
+): Promise<OwaResponse<MailFolder>> {
+  const url = parentFolderId
+    ? `https://outlook.office.com/api/v2.0/me/mailfolders/${encodeURIComponent(parentFolderId)}/childfolders`
+    : 'https://outlook.office.com/api/v2.0/me/mailfolders';
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ DisplayName: displayName }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as MailFolder;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Update (rename) a mail folder.
+ */
+export async function updateMailFolder(
+  token: string,
+  folderId: string,
+  displayName: string
+): Promise<OwaResponse<MailFolder>> {
+  const url = `https://outlook.office.com/api/v2.0/me/mailfolders/${encodeURIComponent(folderId)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ DisplayName: displayName }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as MailFolder;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Delete a mail folder.
+ */
+export async function deleteMailFolder(
+  token: string,
+  folderId: string
+): Promise<OwaResponse<void>> {
+  const url = `https://outlook.office.com/api/v2.0/me/mailfolders/${encodeURIComponent(folderId)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': USER_AGENT,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    return { ok: true, status: response.status };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export type ResponseType = 'accept' | 'decline' | 'tentative';
 
 export interface RespondToEventOptions {
