@@ -12,6 +12,7 @@ import { updateEventCommand } from './commands/update-event.js';
 import { refreshCommand } from './commands/refresh.js';
 import { mailCommand } from './commands/mail.js';
 import { foldersCommand } from './commands/folders.js';
+import { sendCommand } from './commands/send.js';
 
 const program = new Command();
 
@@ -32,5 +33,6 @@ program.addCommand(updateEventCommand);
 program.addCommand(refreshCommand);
 program.addCommand(mailCommand);
 program.addCommand(foldersCommand);
+program.addCommand(sendCommand);
 
 program.parse();

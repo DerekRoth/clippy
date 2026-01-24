@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { resolveAuth } from '../lib/auth.js';
-import { getEmails, getEmail, getAttachments, getAttachment, updateEmail, moveEmail, getMailFolders } from '../lib/owa-client.js';
+import { getEmails, getEmail, getAttachments, getAttachment, updateEmail, moveEmail, getMailFolders, replyToEmail } from '../lib/owa-client.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 
@@ -46,6 +46,9 @@ export const mailCommand = new Command('mail')
   .option('--complete <index>', 'Mark flagged email as complete')
   .option('--move <index>', 'Move email to folder (use with --to)')
   .option('--to <folder>', 'Destination folder for move (inbox, archive, deleted, junk)')
+  .option('--reply <index>', 'Reply to email at index')
+  .option('--reply-all <index>', 'Reply all to email at index')
+  .option('--message <text>', 'Reply message text')
   .option('--json', 'Output as JSON')
   .option('--token <token>', 'Use a specific token')
   .option('-i, --interactive', 'Open browser to extract token automatically')
@@ -65,6 +68,9 @@ export const mailCommand = new Command('mail')
     complete?: string;
     move?: string;
     to?: string;
+    reply?: string;
+    replyAll?: string;
+    message?: string;
     json?: boolean;
     token?: string;
     interactive?: boolean;
@@ -395,6 +401,42 @@ export const mailCommand = new Command('mail')
 
       const folderDisplay = options.to.charAt(0).toUpperCase() + options.to.slice(1);
       console.log(`\u2713 Moved to ${folderDisplay}: ${email.Subject}`);
+      return;
+    }
+
+    // Handle reply
+    if (options.reply || options.replyAll) {
+      const idxStr = options.reply || options.replyAll;
+      const idx = parseInt(idxStr!) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
+        console.error(`Invalid email number: ${idxStr}`);
+        console.error(`Valid range: 1-${emails.length}`);
+        process.exit(1);
+      }
+
+      if (!options.message) {
+        console.error('Please provide reply text with --message');
+        console.error('Example: clippy mail --reply 1 --message "Thanks for your email!"');
+        process.exit(1);
+      }
+
+      const email = emails[idx];
+      const isReplyAll = !!options.replyAll;
+
+      const result = await replyToEmail(
+        authResult.token!,
+        email.Id,
+        options.message,
+        isReplyAll
+      );
+
+      if (!result.ok) {
+        console.error(`Error: ${result.error?.message || 'Failed to send reply'}`);
+        process.exit(1);
+      }
+
+      const replyType = isReplyAll ? 'Reply all' : 'Reply';
+      console.log(`\u2713 ${replyType} sent to: ${email.Subject}`);
       return;
     }
 

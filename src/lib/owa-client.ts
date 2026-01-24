@@ -1460,6 +1460,131 @@ export async function deleteMailFolder(
   }
 }
 
+/**
+ * Send a new email.
+ */
+export async function sendEmail(
+  token: string,
+  options: {
+    to: string[];
+    cc?: string[];
+    bcc?: string[];
+    subject: string;
+    body: string;
+    bodyType?: 'Text' | 'HTML';
+  }
+): Promise<OwaResponse<void>> {
+  const url = 'https://outlook.office.com/api/v2.0/me/sendmail';
+
+  const message: Record<string, unknown> = {
+    Subject: options.subject,
+    Body: {
+      ContentType: options.bodyType || 'Text',
+      Content: options.body,
+    },
+    ToRecipients: options.to.map(email => ({
+      EmailAddress: { Address: email },
+    })),
+  };
+
+  if (options.cc && options.cc.length > 0) {
+    message.CcRecipients = options.cc.map(email => ({
+      EmailAddress: { Address: email },
+    }));
+  }
+
+  if (options.bcc && options.bcc.length > 0) {
+    message.BccRecipients = options.bcc.map(email => ({
+      EmailAddress: { Address: email },
+    }));
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ Message: message }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    return { ok: true, status: response.status };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Reply to an email.
+ */
+export async function replyToEmail(
+  token: string,
+  messageId: string,
+  comment: string,
+  replyAll: boolean = false
+): Promise<OwaResponse<void>> {
+  const action = replyAll ? 'replyall' : 'reply';
+  const url = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(messageId)}/${action}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ Comment: comment }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    return { ok: true, status: response.status };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export type ResponseType = 'accept' | 'decline' | 'tentative';
 
 export interface RespondToEventOptions {
