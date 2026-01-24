@@ -187,7 +187,7 @@ export async function getCalendarEvents(
   startDateTime: string,
   endDateTime: string
 ): Promise<OwaResponse<CalendarEvent[]>> {
-  const url = `https://outlook.office.com/api/v2.0/me/calendarview?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}&$orderby=Start/DateTime`;
+  const url = `https://outlook.office.com/api/v2.0/me/calendarview?startDateTime=${encodeURIComponent(startDateTime)}&endDateTime=${encodeURIComponent(endDateTime)}&$orderby=Start/DateTime&$top=1000`;
 
   try {
     const response = await fetch(url, {
