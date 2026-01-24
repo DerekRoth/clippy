@@ -1538,8 +1538,7 @@ export async function sendEmail(
 
 /**
  * Reply to an email.
- * For plain text replies, uses Comment field (Outlook handles quoting).
- * For HTML replies, creates a draft first to preserve the quoted original.
+ * Always uses draft approach for proper control over formatting and quote separation.
  */
 export async function replyToEmail(
   token: string,
@@ -1548,49 +1547,7 @@ export async function replyToEmail(
   replyAll: boolean = false,
   isHtml: boolean = false
 ): Promise<OwaResponse<void>> {
-  // For plain text, use the simple Comment approach
-  if (!isHtml) {
-    const action = replyAll ? 'replyall' : 'reply';
-    const url = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(messageId)}/${action}`;
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'User-Agent': USER_AGENT,
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({ Comment: comment }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return {
-          ok: false,
-          status: response.status,
-          error: {
-            code: `HTTP_${response.status}`,
-            message: errorText || response.statusText,
-          },
-        };
-      }
-
-      return { ok: true, status: response.status };
-    } catch (err) {
-      return {
-        ok: false,
-        status: 0,
-        error: {
-          code: 'NETWORK_ERROR',
-          message: err instanceof Error ? err.message : 'Unknown error',
-        },
-      };
-    }
-  }
-
-  // For HTML replies, create a draft first to get the quoted original
+  // Always use the draft approach for proper control over formatting
   const createAction = replyAll ? 'createreplyall' : 'createreply';
   const createUrl = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(messageId)}/${createAction}`;
 
@@ -1627,25 +1584,41 @@ export async function replyToEmail(
     // Step 2: Update draft with our HTML prepended to the quoted content
     const updateUrl = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(draftId)}`;
 
-    // Extract just the content if the comment is a full HTML document
-    let replyContent = comment;
-    const bodyMatch = comment.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-    if (bodyMatch) {
-      replyContent = bodyMatch[1].trim();
+    // Prepare the reply content
+    let replyContent: string;
+    if (isHtml) {
+      // Extract just the body content if comment is a full HTML document
+      const bodyMatch = comment.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      replyContent = bodyMatch ? bodyMatch[1].trim() : comment;
+    } else {
+      // Convert plain text to HTML - escape HTML entities and convert newlines to <br>
+      replyContent = comment
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
     }
 
     // Combine our HTML with the quoted original
-    // The quoted original already has proper HTML structure, so we insert our content
+    // Outlook puts the quote header in a div with id="divRplyFwdMsg", we insert before it
     let combinedBody: string;
-    if (quotedOriginal.includes('<body')) {
-      // Insert our content after <body...> tag
+    const replyDiv = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; margin-bottom: 20px;">${replyContent}</div>`;
+
+    if (quotedOriginal.includes('divRplyFwdMsg')) {
+      // Insert our content before the reply/forward message div
+      combinedBody = quotedOriginal.replace(
+        /(<div[^>]*id=["']?divRplyFwdMsg["']?)/i,
+        `${replyDiv}$1`
+      );
+    } else if (quotedOriginal.includes('<body')) {
+      // Fallback: insert after <body> tag
       combinedBody = quotedOriginal.replace(
         /(<body[^>]*>)/i,
-        `$1<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5;">${replyContent}</div><br><hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">`
+        `$1${replyDiv}`
       );
     } else {
       // No body tag, just prepend
-      combinedBody = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5;">${replyContent}</div><br><hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">${quotedOriginal}`;
+      combinedBody = `${replyDiv}${quotedOriginal}`;
     }
 
     const updateResponse = await fetch(updateUrl, {
