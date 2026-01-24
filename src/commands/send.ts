@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { resolveAuth } from '../lib/auth.js';
 import { sendEmail } from '../lib/owa-client.js';
+import { markdownToHtml } from '../lib/markdown.js';
 
 export const sendCommand = new Command('send')
   .description('Send an email')
@@ -10,6 +11,7 @@ export const sendCommand = new Command('send')
   .option('--cc <emails>', 'CC recipient(s), comma-separated')
   .option('--bcc <emails>', 'BCC recipient(s), comma-separated')
   .option('--html', 'Send body as HTML')
+  .option('--markdown', 'Parse body as markdown (bold, links, lists)')
   .option('--json', 'Output as JSON')
   .option('--token <token>', 'Use a specific token')
   .option('-i, --interactive', 'Open browser to extract token automatically')
@@ -20,6 +22,7 @@ export const sendCommand = new Command('send')
     cc?: string;
     bcc?: string;
     html?: boolean;
+    markdown?: boolean;
     json?: boolean;
     token?: string;
     interactive?: boolean;
@@ -48,13 +51,23 @@ export const sendCommand = new Command('send')
       process.exit(1);
     }
 
+    let body = options.body;
+    let bodyType: 'Text' | 'HTML' = 'Text';
+
+    if (options.markdown) {
+      body = markdownToHtml(options.body);
+      bodyType = 'HTML';
+    } else if (options.html) {
+      bodyType = 'HTML';
+    }
+
     const result = await sendEmail(authResult.token!, {
       to: toList,
       cc: ccList,
       bcc: bccList,
       subject: options.subject,
-      body: options.body,
-      bodyType: options.html ? 'HTML' : 'Text',
+      body,
+      bodyType,
     });
 
     if (!result.ok) {

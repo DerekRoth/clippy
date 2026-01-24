@@ -1543,10 +1543,23 @@ export async function replyToEmail(
   token: string,
   messageId: string,
   comment: string,
-  replyAll: boolean = false
+  replyAll: boolean = false,
+  isHtml: boolean = false
 ): Promise<OwaResponse<void>> {
   const action = replyAll ? 'replyall' : 'reply';
   const url = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(messageId)}/${action}`;
+
+  // Build request body - use Message.Body for HTML content
+  const requestBody: Record<string, unknown> = isHtml
+    ? {
+        Message: {
+          Body: {
+            ContentType: 'HTML',
+            Content: comment,
+          },
+        },
+      }
+    : { Comment: comment };
 
   try {
     const response = await fetch(url, {
@@ -1557,7 +1570,7 @@ export async function replyToEmail(
         'User-Agent': USER_AGENT,
         Accept: 'application/json',
       },
-      body: JSON.stringify({ Comment: comment }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {

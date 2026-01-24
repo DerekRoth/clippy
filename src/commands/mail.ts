@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { resolveAuth } from '../lib/auth.js';
 import { getEmails, getEmail, getAttachments, getAttachment, updateEmail, moveEmail, getMailFolders, replyToEmail } from '../lib/owa-client.js';
+import { markdownToHtml } from '../lib/markdown.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 
@@ -49,6 +50,7 @@ export const mailCommand = new Command('mail')
   .option('--reply <index>', 'Reply to email at index')
   .option('--reply-all <index>', 'Reply all to email at index')
   .option('--message <text>', 'Reply message text')
+  .option('--markdown', 'Parse message as markdown (bold, links, lists)')
   .option('--json', 'Output as JSON')
   .option('--token <token>', 'Use a specific token')
   .option('-i, --interactive', 'Open browser to extract token automatically')
@@ -71,6 +73,7 @@ export const mailCommand = new Command('mail')
     reply?: string;
     replyAll?: string;
     message?: string;
+    markdown?: boolean;
     json?: boolean;
     token?: string;
     interactive?: boolean;
@@ -423,11 +426,20 @@ export const mailCommand = new Command('mail')
       const email = emails[idx];
       const isReplyAll = !!options.replyAll;
 
+      let message = options.message;
+      let isHtml = false;
+
+      if (options.markdown) {
+        message = markdownToHtml(options.message);
+        isHtml = true;
+      }
+
       const result = await replyToEmail(
         authResult.token!,
         email.Id,
-        options.message,
-        isReplyAll
+        message,
+        isReplyAll,
+        isHtml
       );
 
       if (!result.ok) {
