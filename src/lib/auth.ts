@@ -1,8 +1,65 @@
 import { chromium } from 'playwright';
 import { homedir } from 'os';
 import { join } from 'path';
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, unlink, open } from 'fs/promises';
 import { validateSession } from './owa-client.js';
+
+const LOCK_FILE = join(homedir(), '.config', 'clippy', 'browser.lock');
+const LOCK_TIMEOUT = 60000; // Consider lock stale after 60s
+
+interface LockHandle {
+  release: () => Promise<void>;
+}
+
+async function acquireLock(timeout: number = 10000): Promise<LockHandle | null> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      // Check if lock exists and is stale
+      try {
+        const lockData = await readFile(LOCK_FILE, 'utf-8');
+        const lockTime = parseInt(lockData, 10);
+        if (Date.now() - lockTime > LOCK_TIMEOUT) {
+          // Stale lock, remove it
+          await unlink(LOCK_FILE);
+        } else {
+          // Lock is held, wait and retry
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+      } catch {
+        // Lock doesn't exist, proceed
+      }
+
+      // Try to create lock file (atomic via exclusive create)
+      await mkdir(join(homedir(), '.config', 'clippy'), { recursive: true });
+      const fd = await open(LOCK_FILE, 'wx');
+      await fd.write(Date.now().toString());
+      await fd.close();
+
+      return {
+        release: async () => {
+          try {
+            await unlink(LOCK_FILE);
+          } catch {
+            // Ignore
+          }
+        },
+      };
+    } catch (err: unknown) {
+      if (err && typeof err === 'object' && 'code' in err && err.code === 'EEXIST') {
+        // Lock file exists, wait and retry
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+      // Other error, try again
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+
+  return null; // Couldn't acquire lock
+}
 
 export interface AuthResult {
   success: boolean;
@@ -106,6 +163,15 @@ async function tryExtractToken(
   headless: boolean,
   timeout: number
 ): Promise<PlaywrightTokenResult> {
+  // Acquire lock to prevent concurrent browser access
+  const lock = await acquireLock(headless ? 5000 : 30000);
+  if (!lock) {
+    return {
+      success: false,
+      error: 'Another browser session is in progress, please wait',
+    };
+  }
+
   let context;
   try {
     // Use a dedicated profile directory for Clippy (persists login session)
@@ -173,6 +239,7 @@ async function tryExtractToken(
     }
 
     await context.close();
+    await lock.release();
 
     if (capturedToken) {
       return { success: true, token: capturedToken, graphToken: capturedGraphToken || undefined };
@@ -188,6 +255,7 @@ async function tryExtractToken(
     if (context) {
       await context.close();
     }
+    await lock.release();
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Unknown error during token extraction',
