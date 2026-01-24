@@ -1157,6 +1157,59 @@ export async function getAttachment(
   }
 }
 
+/**
+ * Update email properties (read status, flag, etc.)
+ */
+export async function updateEmail(
+  token: string,
+  messageId: string,
+  updates: {
+    IsRead?: boolean;
+    Flag?: {
+      FlagStatus: 'NotFlagged' | 'Flagged' | 'Complete';
+    };
+  }
+): Promise<OwaResponse<EmailMessage>> {
+  const url = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(messageId)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as EmailMessage;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export type ResponseType = 'accept' | 'decline' | 'tentative';
 
 export interface RespondToEventOptions {

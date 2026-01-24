@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { resolveAuth } from '../lib/auth.js';
-import { getEmails, getEmail, getAttachments, getAttachment } from '../lib/owa-client.js';
+import { getEmails, getEmail, getAttachments, getAttachment, updateEmail } from '../lib/owa-client.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 
@@ -39,6 +39,11 @@ export const mailCommand = new Command('mail')
   .option('-r, --read <index>', 'Read email at index (1-based)')
   .option('-d, --download <index>', 'Download attachments from email at index')
   .option('-o, --output <dir>', 'Output directory for attachments', '.')
+  .option('--mark-read <index>', 'Mark email as read')
+  .option('--mark-unread <index>', 'Mark email as unread')
+  .option('--flag <index>', 'Flag email')
+  .option('--unflag <index>', 'Remove flag from email')
+  .option('--complete <index>', 'Mark flagged email as complete')
   .option('--json', 'Output as JSON')
   .option('--token <token>', 'Use a specific token')
   .option('-i, --interactive', 'Open browser to extract token automatically')
@@ -51,6 +56,11 @@ export const mailCommand = new Command('mail')
     read?: string;
     download?: string;
     output: string;
+    markRead?: string;
+    markUnread?: string;
+    flag?: string;
+    unflag?: string;
+    complete?: string;
     json?: boolean;
     token?: string;
     interactive?: boolean;
@@ -232,6 +242,68 @@ export const mailCommand = new Command('mail')
       }
 
       console.log('\nDone.\n');
+      return;
+    }
+
+    // Handle mark as read/unread
+    if (options.markRead || options.markUnread) {
+      const idxStr = options.markRead || options.markUnread;
+      const idx = parseInt(idxStr!) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
+        console.error(`Invalid email number: ${idxStr}`);
+        console.error(`Valid range: 1-${emails.length}`);
+        process.exit(1);
+      }
+
+      const email = emails[idx];
+      const isRead = !!options.markRead;
+
+      const result = await updateEmail(authResult.token!, email.Id, { IsRead: isRead });
+
+      if (!result.ok) {
+        console.error(`Error: ${result.error?.message || 'Failed to update email'}`);
+        process.exit(1);
+      }
+
+      console.log(`\u2713 Marked as ${isRead ? 'read' : 'unread'}: ${email.Subject}`);
+      return;
+    }
+
+    // Handle flag/unflag/complete
+    if (options.flag || options.unflag || options.complete) {
+      const idxStr = options.flag || options.unflag || options.complete;
+      const idx = parseInt(idxStr!) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= emails.length) {
+        console.error(`Invalid email number: ${idxStr}`);
+        console.error(`Valid range: 1-${emails.length}`);
+        process.exit(1);
+      }
+
+      const email = emails[idx];
+      let flagStatus: 'NotFlagged' | 'Flagged' | 'Complete';
+      let actionLabel: string;
+
+      if (options.flag) {
+        flagStatus = 'Flagged';
+        actionLabel = 'Flagged';
+      } else if (options.complete) {
+        flagStatus = 'Complete';
+        actionLabel = 'Marked complete';
+      } else {
+        flagStatus = 'NotFlagged';
+        actionLabel = 'Unflagged';
+      }
+
+      const result = await updateEmail(authResult.token!, email.Id, {
+        Flag: { FlagStatus: flagStatus },
+      });
+
+      if (!result.ok) {
+        console.error(`Error: ${result.error?.message || 'Failed to update email'}`);
+        process.exit(1);
+      }
+
+      console.log(`\u2713 ${actionLabel}: ${email.Subject}`);
       return;
     }
 
