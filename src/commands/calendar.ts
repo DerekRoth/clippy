@@ -12,7 +12,7 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function parseDate(day: string, baseDate: Date = new Date()): Date {
+function parseDate(day: string, baseDate: Date = new Date(), forwardOnly: boolean = false): Date {
   const now = new Date(baseDate);
 
   switch (day.toLowerCase()) {
@@ -35,7 +35,13 @@ function parseDate(day: string, baseDate: Date = new Date()): Date {
       const targetDay = days.indexOf(day.toLowerCase());
       const currentDay = now.getDay();
       let diff = targetDay - currentDay;
-      if (diff > 0) diff -= 7; // Go to previous occurrence
+      if (forwardOnly) {
+        // For end dates, go forward to next occurrence if needed
+        if (diff < 0) diff += 7;
+      } else {
+        // For start dates, go back to previous occurrence
+        if (diff > 0) diff -= 7;
+      }
       now.setDate(now.getDate() + diff);
       return now;
     }
@@ -92,8 +98,8 @@ function getDateRange(startDay: string, endDay?: string): { start: string; end: 
   startDate.setHours(0, 0, 0, 0);
 
   if (endDay) {
-    // Date range
-    const endDate = parseDate(endDay, startDate);
+    // Date range - use forwardOnly for end date
+    const endDate = parseDate(endDay, startDate, true);
     endDate.setHours(23, 59, 59, 999);
 
     const label = `${formatDate(startDate.toISOString())} - ${formatDate(endDate.toISOString())}`;
