@@ -901,6 +901,156 @@ export async function deleteEvent(
   }
 }
 
+// Email types
+export interface EmailAddress {
+  Name?: string;
+  Address?: string;
+}
+
+export interface EmailMessage {
+  Id: string;
+  Subject?: string;
+  BodyPreview?: string;
+  Body?: {
+    ContentType: string;
+    Content: string;
+  };
+  From?: {
+    EmailAddress?: EmailAddress;
+  };
+  ToRecipients?: Array<{ EmailAddress?: EmailAddress }>;
+  CcRecipients?: Array<{ EmailAddress?: EmailAddress }>;
+  ReceivedDateTime?: string;
+  SentDateTime?: string;
+  IsRead?: boolean;
+  IsDraft?: boolean;
+  HasAttachments?: boolean;
+  Importance?: 'Low' | 'Normal' | 'High';
+  Flag?: {
+    FlagStatus?: 'NotFlagged' | 'Flagged' | 'Complete';
+  };
+}
+
+export interface EmailListResponse {
+  value: EmailMessage[];
+  '@odata.nextLink'?: string;
+}
+
+export interface GetEmailsOptions {
+  token: string;
+  folder?: string;  // inbox, sentitems, drafts, deleteditems, archive, junkemail
+  top?: number;
+  skip?: number;
+  filter?: string;
+  select?: string[];
+  orderBy?: string;
+}
+
+/**
+ * Get emails from a folder.
+ */
+export async function getEmails(
+  options: GetEmailsOptions
+): Promise<OwaResponse<EmailListResponse>> {
+  const {
+    token,
+    folder = 'inbox',
+    top = 10,
+    skip = 0,
+    filter,
+    select = ['Id', 'Subject', 'BodyPreview', 'From', 'ReceivedDateTime', 'IsRead', 'HasAttachments', 'Importance', 'Flag'],
+    orderBy = 'ReceivedDateTime desc',
+  } = options;
+
+  const params = new URLSearchParams();
+  params.set('$top', top.toString());
+  if (skip > 0) params.set('$skip', skip.toString());
+  if (filter) params.set('$filter', filter);
+  params.set('$select', select.join(','));
+  params.set('$orderby', orderBy);
+
+  const url = `https://outlook.office.com/api/v2.0/me/mailfolders/${folder}/messages?${params}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+        Prefer: 'outlook.body-content-type="text"',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as EmailListResponse;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Get a single email by ID.
+ */
+export async function getEmail(
+  token: string,
+  messageId: string
+): Promise<OwaResponse<EmailMessage>> {
+  const url = `https://outlook.office.com/api/v2.0/me/messages/${encodeURIComponent(messageId)}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+        Prefer: 'outlook.body-content-type="text"',
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as EmailMessage;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export type ResponseType = 'accept' | 'decline' | 'tentative';
 
 export interface RespondToEventOptions {

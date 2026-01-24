@@ -10,6 +10,7 @@ import { deleteEventCommand } from './commands/delete-event.js';
 import { findCommand } from './commands/find.js';
 import { updateEventCommand } from './commands/update-event.js';
 import { refreshCommand } from './commands/refresh.js';
+import { mailCommand } from './commands/mail.js';
 
 const program = new Command();
 
@@ -28,5 +29,6 @@ program.addCommand(deleteEventCommand);
 program.addCommand(findCommand);
 program.addCommand(updateEventCommand);
 program.addCommand(refreshCommand);
+program.addCommand(mailCommand);
 
 program.parse();
