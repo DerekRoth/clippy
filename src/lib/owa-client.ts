@@ -1765,7 +1765,9 @@ async function createReplyDraft(
     const quotedOriginal = draft.Body?.Content || '';
 
     // Sanitize any separator/MIME boundary artifacts (Outlook sometimes injects them in text replies)
+    // Also remove <hr> tags which Outlook uses as separators (converts to ____ in text mode)
     const sanitizedOriginal = quotedOriginal
+      .replace(/<hr[^>]*>/gi, '')  // Remove <hr> separator tags
       .replace(/<[^>]*>\s*_{5,}\s*<\/[^>]*>/gi, '')
       .replace(/(?:&#95;|&lowbar;){5,}/gi, '')
       .replace(/_{5,}/g, '')
