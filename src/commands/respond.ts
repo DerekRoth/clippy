@@ -29,6 +29,8 @@ export const respondCommand = new Command('respond')
   .argument('[eventIndex]', 'Event index from the list (1-based)')
   .option('--comment <text>', 'Add a comment to your response')
   .option('--no-notify', 'Don\'t send response to organizer')
+  .option('--include-optional', 'Include optional invitations (default)', true)
+  .option('--only-required', 'Only show required invitations')
   .option('--json', 'Output as JSON')
   .option('--token <token>', 'Use a specific token')
   .option('-i, --interactive', 'Open browser to extract token automatically')
@@ -91,8 +93,16 @@ export const respondCommand = new Command('respond')
       if (!myAttendance) return false;
 
       // Include events where response is None or NotResponded
-      return myAttendance.Status?.Response === 'None' ||
-             myAttendance.Status?.Response === 'NotResponded';
+      const isPending = myAttendance.Status?.Response === 'None' ||
+                        myAttendance.Status?.Response === 'NotResponded';
+
+      if (!isPending) return false;
+
+      // Optional attendance handling
+      const isOptional = (myAttendance as any).AttendeeType === 'Optional';
+      if (options.onlyRequired && isOptional) return false;
+
+      return true;
     });
 
     // Default action is 'list'
