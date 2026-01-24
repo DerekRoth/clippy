@@ -9,6 +9,7 @@ import { createEventCommand } from './commands/create-event.js';
 import { deleteEventCommand } from './commands/delete-event.js';
 import { findCommand } from './commands/find.js';
 import { updateEventCommand } from './commands/update-event.js';
+import { refreshCommand } from './commands/refresh.js';
 
 const program = new Command();
 
@@ -26,5 +27,6 @@ program.addCommand(createEventCommand);
 program.addCommand(deleteEventCommand);
 program.addCommand(findCommand);
 program.addCommand(updateEventCommand);
+program.addCommand(refreshCommand);
 
 program.parse();
