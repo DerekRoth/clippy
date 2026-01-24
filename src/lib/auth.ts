@@ -6,12 +6,14 @@ import { validateSession } from './owa-client.js';
 export interface AuthResult {
   success: boolean;
   token?: string;
+  graphToken?: string;
   error?: string;
 }
 
 export interface PlaywrightTokenResult {
   success: boolean;
   token?: string;
+  graphToken?: string;
   error?: string;
 }
 
@@ -64,14 +66,25 @@ async function tryExtractToken(
     const page = context.pages()[0] || await context.newPage();
 
     let capturedToken: string | null = null;
+    let capturedGraphToken: string | null = null;
 
-    // Intercept requests to capture Bearer token
+    // Intercept requests to capture Bearer tokens
     page.on('request', request => {
-      if (request.url().includes('outlook.office.com') && !capturedToken) {
-        const headers = request.headers();
-        const authHeader = headers['authorization'];
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-          capturedToken = authHeader.replace('Bearer ', '');
+      const url = request.url();
+      const headers = request.headers();
+      const authHeader = headers['authorization'];
+
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.replace('Bearer ', '');
+
+        // Capture Outlook token
+        if (url.includes('outlook.office.com') && !capturedToken) {
+          capturedToken = token;
+        }
+
+        // Capture Graph token
+        if (url.includes('graph.microsoft.com') && !capturedGraphToken) {
+          capturedGraphToken = token;
         }
       }
     });
@@ -91,10 +104,20 @@ async function tryExtractToken(
       await page.waitForTimeout(500);
     }
 
+    // If we have the Outlook token, wait a bit more to try to capture Graph token
+    if (capturedToken && !capturedGraphToken) {
+      // Try to trigger Graph API calls by interacting with the page
+      const graphWaitTime = headless ? 3000 : 5000;
+      const graphStart = Date.now();
+      while (!capturedGraphToken && (Date.now() - graphStart) < graphWaitTime) {
+        await page.waitForTimeout(500);
+      }
+    }
+
     await context.close();
 
     if (capturedToken) {
-      return { success: true, token: capturedToken };
+      return { success: true, token: capturedToken, graphToken: capturedGraphToken || undefined };
     }
 
     return {
@@ -148,7 +171,11 @@ export async function resolveAuth(options: {
     if (playwrightResult.success && playwrightResult.token) {
       const isValid = await validateSession(playwrightResult.token);
       if (isValid) {
-        return { success: true, token: playwrightResult.token };
+        return {
+          success: true,
+          token: playwrightResult.token,
+          graphToken: playwrightResult.graphToken,
+        };
       }
       return {
         success: false,

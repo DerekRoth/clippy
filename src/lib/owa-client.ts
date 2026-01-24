@@ -236,6 +236,201 @@ export interface FreeBusySlot {
   subject?: string;
 }
 
+export interface ScheduleInfo {
+  scheduleId: string;
+  availabilityView: string;
+  scheduleItems: Array<{
+    status: string;
+    start: { dateTime: string; timeZone: string };
+    end: { dateTime: string; timeZone: string };
+    subject?: string;
+    location?: string;
+  }>;
+}
+
+/**
+ * Get schedule/availability for multiple users using Microsoft Graph API.
+ * Requires a Graph API token with Calendars.Read.Shared permission.
+ */
+export async function getScheduleForUsers(
+  graphToken: string,
+  emails: string[],
+  startDateTime: string,
+  endDateTime: string
+): Promise<OwaResponse<ScheduleInfo[]>> {
+  // Try getSchedule endpoint first
+  const url = 'https://graph.microsoft.com/v1.0/me/calendar/getSchedule';
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${graphToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        schedules: emails,
+        startTime: {
+          dateTime: startDateTime,
+          timeZone: 'Europe/Amsterdam',
+        },
+        endTime: {
+          dateTime: endDateTime,
+          timeZone: 'Europe/Amsterdam',
+        },
+        availabilityViewInterval: 30,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: errorData.error?.code || `HTTP_${response.status}`,
+          message: errorData.error?.message || response.statusText,
+        },
+      };
+    }
+
+    const data = await response.json() as { value: ScheduleInfo[] };
+
+    return {
+      ok: true,
+      status: response.status,
+      data: data.value,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Get schedule/availability for users using Outlook REST API.
+ * Uses the same token as other Outlook API calls.
+ */
+export async function getScheduleViaOutlook(
+  token: string,
+  emails: string[],
+  startDateTime: string,
+  endDateTime: string
+): Promise<OwaResponse<ScheduleInfo[]>> {
+  // Try using FindMeetingTimes which can access other users' availability
+  const url = 'https://outlook.office.com/api/v2.0/me/FindMeetingTimes';
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Prefer: 'outlook.timezone="Europe/Amsterdam"',
+      },
+      body: JSON.stringify({
+        Attendees: emails.map(email => ({
+          EmailAddress: { Address: email, Name: email },
+          Type: 'Required',
+        })),
+        TimeConstraint: {
+          Timeslots: [{
+            Start: { DateTime: startDateTime, TimeZone: 'W. Europe Standard Time' },
+            End: { DateTime: endDateTime, TimeZone: 'W. Europe Standard Time' },
+          }],
+        },
+        MeetingDuration: 'PT30M',
+        ReturnSuggestionReasons: true,
+        MinimumAttendeePercentage: 100,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = await response.json() as {
+      MeetingTimeSuggestions?: Array<{
+        MeetingTimeSlot: {
+          Start: { DateTime: string; TimeZone: string };
+          End: { DateTime: string; TimeZone: string };
+        };
+        Confidence: number;
+        AttendeeAvailability?: Array<{
+          Attendee: { EmailAddress: { Address: string } };
+          Availability: string;
+        }>;
+      }>;
+    };
+
+    // Transform FindMeetingTimes response to our format
+    const schedules: ScheduleInfo[] = emails.map(email => ({
+      scheduleId: email,
+      availabilityView: '',
+      scheduleItems: [],
+    }));
+
+    // Parse meeting suggestions to find free/busy times
+    if (data.MeetingTimeSuggestions && data.MeetingTimeSuggestions.length > 0) {
+      // Build free slots from suggestions
+      const freeSlots = data.MeetingTimeSuggestions.map(s => ({
+        start: s.MeetingTimeSlot.Start.DateTime,
+        end: s.MeetingTimeSlot.End.DateTime,
+      }));
+
+      for (const schedule of schedules) {
+        // Add free slots
+        schedule.scheduleItems = freeSlots.map(slot => ({
+          status: 'Free',
+          start: { dateTime: slot.start, timeZone: 'W. Europe Standard Time' },
+          end: { dateTime: slot.end, timeZone: 'W. Europe Standard Time' },
+        }));
+      }
+    } else {
+      // No meeting times found - users are busy for the entire period
+      for (const schedule of schedules) {
+        schedule.scheduleItems = [{
+          status: 'Busy',
+          start: { dateTime: startDateTime, timeZone: 'W. Europe Standard Time' },
+          end: { dateTime: endDateTime, timeZone: 'W. Europe Standard Time' },
+          subject: 'No available times',
+        }];
+      }
+    }
+
+    return {
+      ok: true,
+      status: response.status,
+      data: schedules,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 /**
  * Get free/busy info for current user by analyzing their calendar events.
  * Note: Looking up other users requires Microsoft Graph API with different permissions.
