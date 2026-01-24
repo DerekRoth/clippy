@@ -5,6 +5,8 @@ import { whoamiCommand } from './commands/whoami.js';
 import { calendarCommand } from './commands/calendar.js';
 import { findtimeCommand } from './commands/findtime.js';
 import { respondCommand } from './commands/respond.js';
+import { createEventCommand } from './commands/create-event.js';
+import { deleteEventCommand } from './commands/delete-event.js';
 
 const program = new Command();
 
@@ -18,5 +20,7 @@ program.addCommand(whoamiCommand);
 program.addCommand(calendarCommand);
 program.addCommand(findtimeCommand);
 program.addCommand(respondCommand);
+program.addCommand(createEventCommand);
+program.addCommand(deleteEventCommand);
 
 program.parse();

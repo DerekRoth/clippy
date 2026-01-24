@@ -469,6 +469,328 @@ export async function getFreeBusy(
   };
 }
 
+export interface CreateEventOptions {
+  token: string;
+  subject: string;
+  start: string;  // ISO datetime
+  end: string;    // ISO datetime
+  body?: string;
+  location?: string;
+  attendees?: Array<{ email: string; name?: string; type?: 'Required' | 'Optional' | 'Resource' }>;
+  isOnlineMeeting?: boolean;
+}
+
+export interface CreatedEvent {
+  Id: string;
+  Subject: string;
+  Start: { DateTime: string; TimeZone: string };
+  End: { DateTime: string; TimeZone: string };
+  WebLink?: string;
+  OnlineMeetingUrl?: string;
+}
+
+/**
+ * Create a new calendar event.
+ */
+export async function createEvent(
+  options: CreateEventOptions
+): Promise<OwaResponse<CreatedEvent>> {
+  const { token, subject, start, end, body, location, attendees, isOnlineMeeting } = options;
+  const url = 'https://outlook.office.com/api/v2.0/me/events';
+
+  const eventBody: Record<string, unknown> = {
+    Subject: subject,
+    Start: {
+      DateTime: start,
+      TimeZone: 'Europe/Amsterdam',
+    },
+    End: {
+      DateTime: end,
+      TimeZone: 'Europe/Amsterdam',
+    },
+  };
+
+  if (body) {
+    eventBody.Body = {
+      ContentType: 'Text',
+      Content: body,
+    };
+  }
+
+  if (location) {
+    eventBody.Location = {
+      DisplayName: location,
+    };
+  }
+
+  if (attendees && attendees.length > 0) {
+    eventBody.Attendees = attendees.map(a => ({
+      EmailAddress: {
+        Address: a.email,
+        Name: a.name || a.email,
+      },
+      Type: a.type || 'Required',
+    }));
+  }
+
+  if (isOnlineMeeting) {
+    eventBody.IsOnlineMeeting = true;
+    eventBody.OnlineMeetingProvider = 'TeamsForBusiness';
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+        Prefer: 'outlook.timezone="Europe/Amsterdam"',
+      },
+      body: JSON.stringify(eventBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as CreatedEvent;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+export interface Room {
+  Address: string;
+  Name: string;
+}
+
+export interface RoomList {
+  Address: string;
+  Name: string;
+}
+
+/**
+ * Get available room lists (buildings/locations).
+ */
+export async function getRoomLists(
+  token: string
+): Promise<OwaResponse<RoomList[]>> {
+  // Try Graph API first (works with Outlook token in some cases)
+  const urls = [
+    'https://graph.microsoft.com/v1.0/places/microsoft.graph.roomList',
+    'https://outlook.office.com/api/v2.0/me/findRoomLists',
+  ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'User-Agent': USER_AGENT,
+          Accept: 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as { value: Array<{ emailAddress?: string; address?: string; displayName?: string; Name?: string; Address?: string }> };
+        const rooms = data.value.map(r => ({
+          Address: r.emailAddress || r.address || r.Address || '',
+          Name: r.displayName || r.Name || '',
+        }));
+        if (rooms.length > 0) {
+          return { ok: true, status: response.status, data: rooms };
+        }
+      }
+    } catch {
+      // Try next URL
+    }
+  }
+
+  return {
+    ok: false,
+    status: 404,
+    error: {
+      code: 'NOT_FOUND',
+      message: 'No room lists found',
+    },
+  };
+}
+
+/**
+ * Get rooms in a room list or all rooms.
+ */
+export async function getRooms(
+  token: string,
+  roomListAddress?: string
+): Promise<OwaResponse<Room[]>> {
+  // Try multiple endpoints
+  const urls = roomListAddress
+    ? [
+        `https://graph.microsoft.com/v1.0/places/${encodeURIComponent(roomListAddress)}/microsoft.graph.roomList/rooms`,
+        `https://outlook.office.com/api/v2.0/me/findRooms(RoomList='${encodeURIComponent(roomListAddress)}')`,
+      ]
+    : [
+        'https://graph.microsoft.com/v1.0/places/microsoft.graph.room',
+        'https://outlook.office.com/api/v2.0/me/findRooms',
+      ];
+
+  for (const url of urls) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'User-Agent': USER_AGENT,
+          Accept: 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as { value: Array<{ emailAddress?: string; address?: string; displayName?: string; Name?: string; Address?: string }> };
+        const rooms = data.value.map(r => ({
+          Address: r.emailAddress || r.address || r.Address || '',
+          Name: r.displayName || r.Name || '',
+        }));
+        if (rooms.length > 0) {
+          return { ok: true, status: response.status, data: rooms };
+        }
+      }
+    } catch {
+      // Try next URL
+    }
+  }
+
+  return {
+    ok: false,
+    status: 404,
+    error: {
+      code: 'NOT_FOUND',
+      message: 'No rooms found',
+    },
+  };
+}
+
+/**
+ * Search for rooms/resources using the People API.
+ */
+export async function searchRooms(
+  token: string,
+  query: string = 'room'
+): Promise<OwaResponse<Room[]>> {
+  // Use People search API with room filter
+  const searchQuery = query || 'room';
+  const url = `https://outlook.office.com/api/v2.0/me/people?$search=${encodeURIComponent(searchQuery)}&$top=50`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as {
+      value: Array<{
+        DisplayName?: string;
+        ScoredEmailAddresses?: Array<{ Address?: string }>;
+        PersonType?: { Class?: string; Subclass?: string };
+      }>;
+    };
+
+    // Filter to only rooms (PersonType.Subclass === 'Room')
+    const rooms: Room[] = data.value
+      .filter(p => p.PersonType?.Subclass === 'Room')
+      .map(p => ({
+        Name: p.DisplayName || '',
+        Address: p.ScoredEmailAddresses?.[0]?.Address || '',
+      }))
+      .filter(r => r.Address);
+
+    return { ok: true, status: response.status, data: rooms };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Delete a calendar event.
+ */
+export async function deleteEvent(
+  token: string,
+  eventId: string
+): Promise<OwaResponse<void>> {
+  const url = `https://outlook.office.com/api/v2.0/me/events/${encodeURIComponent(eventId)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': USER_AGENT,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    return { ok: true, status: response.status };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export type ResponseType = 'accept' | 'decline' | 'tentative';
 
 export interface RespondToEventOptions {
