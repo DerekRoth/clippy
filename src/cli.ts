@@ -4,6 +4,7 @@ import { loginCommand } from './commands/login.js';
 import { whoamiCommand } from './commands/whoami.js';
 import { calendarCommand } from './commands/calendar.js';
 import { findtimeCommand } from './commands/findtime.js';
+import { respondCommand } from './commands/respond.js';
 
 const program = new Command();
 
@@ -16,5 +17,6 @@ program.addCommand(loginCommand);
 program.addCommand(whoamiCommand);
 program.addCommand(calendarCommand);
 program.addCommand(findtimeCommand);
+program.addCommand(respondCommand);
 
 program.parse();

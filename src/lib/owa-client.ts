@@ -469,6 +469,122 @@ export async function getFreeBusy(
   };
 }
 
+export type ResponseType = 'accept' | 'decline' | 'tentative';
+
+export interface RespondToEventOptions {
+  token: string;
+  eventId: string;
+  response: ResponseType;
+  comment?: string;
+  sendResponse?: boolean;
+}
+
+/**
+ * Respond to a calendar event (accept, decline, or tentatively accept).
+ */
+export async function respondToEvent(
+  options: RespondToEventOptions
+): Promise<OwaResponse<void>> {
+  const { token, eventId, response, comment, sendResponse = true } = options;
+
+  const actionMap: Record<ResponseType, string> = {
+    accept: 'accept',
+    decline: 'decline',
+    tentative: 'tentativelyAccept',
+  };
+
+  const action = actionMap[response];
+  const url = `https://outlook.office.com/api/v2.0/me/events/${encodeURIComponent(eventId)}/${action}`;
+
+  try {
+    const body: Record<string, unknown> = {
+      SendResponse: sendResponse,
+    };
+
+    if (comment) {
+      body.Comment = comment;
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      return {
+        ok: false,
+        status: res.status,
+        error: {
+          code: `HTTP_${res.status}`,
+          message: errorText || res.statusText,
+        },
+      };
+    }
+
+    return { ok: true, status: res.status };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
+/**
+ * Get a single calendar event by ID.
+ */
+export async function getCalendarEvent(
+  token: string,
+  eventId: string
+): Promise<OwaResponse<CalendarEvent>> {
+  const url = `https://outlook.office.com/api/v2.0/me/events/${encodeURIComponent(eventId)}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+        Prefer: 'outlook.timezone="Europe/Amsterdam"',
+      },
+    });
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as CalendarEvent;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export async function validateSession(token: string): Promise<boolean> {
   // Use Outlook REST API to validate the token
   const url = 'https://outlook.office.com/api/v2.0/me/mailfolders/inbox';
