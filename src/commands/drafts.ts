@@ -376,6 +376,7 @@ export const draftsCommand = new Command('drafts')
       const ccList = options.cc ? options.cc.split(',').map(e => e.trim()).filter(Boolean) : undefined;
 
       let body = options.body;
+      if (body) body = body.replace(/\\n/g, '\n');
       let bodyType: 'Text' | 'HTML' = 'Text';
       if (options.markdown && body) {
         body = markdownToHtml(body);
@@ -482,6 +483,7 @@ export const draftsCommand = new Command('drafts')
       const ccList = options.cc ? options.cc.split(',').map(e => e.trim()).filter(Boolean) : undefined;
 
       let body = options.body;
+      if (body) body = body.replace(/\\n/g, '\n');
       let bodyType: 'Text' | 'HTML' = 'Text';
       if (options.markdown && body) {
         body = markdownToHtml(body);

@@ -1,6 +1,6 @@
 {
   "name": "clippy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI for Microsoft 365/OWA using cookie-based authentication",
   "type": "module",
   "main": "src/index.ts",
