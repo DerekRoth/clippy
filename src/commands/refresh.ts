@@ -162,7 +162,8 @@ export const refreshCommand = new Command('refresh')
     }
 
     // Refresh token (headless only - for unattended use)
-    const result = await extractTokenViaPlaywright({ headless: true, timeout: 30000 });
+    const keepaliveProfile = join(homedir(), '.config', 'clippy', 'keepalive-profile');
+    const result = await extractTokenViaPlaywright({ headless: true, timeout: 30000, userDataDir: keepaliveProfile });
 
     if (!result.success || !result.token) {
       console.error(`Error: ${result.error || 'Failed to refresh token'}`);

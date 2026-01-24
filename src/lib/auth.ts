@@ -140,12 +140,12 @@ export async function setCachedToken(token: string, graphToken?: string): Promis
  * Tries headless first, then falls back to visible browser if login is needed.
  */
 export async function extractTokenViaPlaywright(
-  options: { headless?: boolean; timeout?: number } = {}
+  options: { headless?: boolean; timeout?: number; userDataDir?: string } = {}
 ): Promise<PlaywrightTokenResult> {
-  const { headless = true, timeout = 15000 } = options;
+  const { headless = true, timeout = 15000, userDataDir } = options;
 
   // Try headless first (fast path for already logged-in users)
-  const result = await tryExtractToken(headless, timeout);
+  const result = await tryExtractToken(headless, timeout, userDataDir);
 
   if (result.success) {
     return result;
@@ -154,7 +154,7 @@ export async function extractTokenViaPlaywright(
   // If headless failed and we haven't tried visible yet, retry with visible browser
   if (headless) {
     console.log('Session not found. Opening browser for login...');
-    return tryExtractToken(false, 60000);  // Give more time for manual login
+    return tryExtractToken(false, 60000, userDataDir);  // Give more time for manual login
   }
 
   return result;
@@ -162,7 +162,8 @@ export async function extractTokenViaPlaywright(
 
 async function tryExtractToken(
   headless: boolean,
-  timeout: number
+  timeout: number,
+  userDataDirOverride?: string
 ): Promise<PlaywrightTokenResult> {
   // Acquire lock to prevent concurrent browser access
   const lock = await acquireLock(headless ? 5000 : 30000);
@@ -176,7 +177,7 @@ async function tryExtractToken(
   let context;
   try {
     // Use a dedicated profile directory for Clippy (persists login session)
-    const userDataDir = join(homedir(), '.config', 'clippy', 'browser-profile');
+    const userDataDir = userDataDirOverride || join(homedir(), '.config', 'clippy', 'browser-profile');
 
     // Ensure the directory exists
     await mkdir(userDataDir, { recursive: true });
