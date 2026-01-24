@@ -18,12 +18,33 @@ export interface PlaywrightTokenResult {
 /**
  * Extract Bearer token by launching a browser and intercepting OWA requests.
  * Uses a persistent profile so the user only needs to log in once.
+ * Tries headless first, then falls back to visible browser if login is needed.
  */
 export async function extractTokenViaPlaywright(
   options: { headless?: boolean; timeout?: number } = {}
 ): Promise<PlaywrightTokenResult> {
-  const { headless = false, timeout = 60000 } = options;
+  const { headless = true, timeout = 15000 } = options;
 
+  // Try headless first (fast path for already logged-in users)
+  const result = await tryExtractToken(headless, timeout);
+
+  if (result.success) {
+    return result;
+  }
+
+  // If headless failed and we haven't tried visible yet, retry with visible browser
+  if (headless) {
+    console.log('Session not found. Opening browser for login...');
+    return tryExtractToken(false, 60000);  // Give more time for manual login
+  }
+
+  return result;
+}
+
+async function tryExtractToken(
+  headless: boolean,
+  timeout: number
+): Promise<PlaywrightTokenResult> {
   let context;
   try {
     // Use a dedicated profile directory for Clippy (persists login session)
@@ -55,8 +76,9 @@ export async function extractTokenViaPlaywright(
       }
     });
 
-    console.log('Opening browser to capture OWA token...');
-    console.log('If not logged in, please complete the login process.');
+    if (!headless) {
+      console.log('Please complete the login process in the browser...');
+    }
 
     await page.goto('https://outlook.office.com/mail/', {
       waitUntil: 'domcontentloaded',
@@ -77,7 +99,9 @@ export async function extractTokenViaPlaywright(
 
     return {
       success: false,
-      error: 'Timeout: No Bearer token captured. Make sure you are logged in to OWA.'
+      error: headless
+        ? 'No active session found'
+        : 'Timeout: No Bearer token captured. Make sure you completed the login.'
     };
   } catch (err) {
     if (context) {

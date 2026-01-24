@@ -229,6 +229,50 @@ export async function getCalendarEvents(
   }
 }
 
+export interface FreeBusySlot {
+  status: 'Free' | 'Busy' | 'Tentative';
+  start: string;
+  end: string;
+  subject?: string;
+}
+
+/**
+ * Get free/busy info for current user by analyzing their calendar events.
+ * Note: Looking up other users requires Microsoft Graph API with different permissions.
+ */
+export async function getFreeBusy(
+  token: string,
+  startDateTime: string,
+  endDateTime: string
+): Promise<OwaResponse<FreeBusySlot[]>> {
+  // Use calendar view to get events, then convert to free/busy
+  const result = await getCalendarEvents(token, startDateTime, endDateTime);
+
+  if (!result.ok || !result.data) {
+    return {
+      ok: false,
+      status: result.status,
+      error: result.error,
+    };
+  }
+
+  const slots: FreeBusySlot[] = result.data
+    .filter(event => !event.IsCancelled)
+    .map(event => ({
+      status: event.ShowAs === 'Free' ? 'Free' as const :
+              event.ShowAs === 'Tentative' ? 'Tentative' as const : 'Busy' as const,
+      start: event.Start.DateTime,
+      end: event.End.DateTime,
+      subject: event.Subject,
+    }));
+
+  return {
+    ok: true,
+    status: 200,
+    data: slots,
+  };
+}
+
 export async function validateSession(token: string): Promise<boolean> {
   // Use Outlook REST API to validate the token
   const url = 'https://outlook.office.com/api/v2.0/me/mailfolders/inbox';
