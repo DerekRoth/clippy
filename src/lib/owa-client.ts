@@ -577,6 +577,116 @@ export async function createEvent(
   }
 }
 
+export interface UpdateEventOptions {
+  token: string;
+  eventId: string;
+  subject?: string;
+  start?: string;  // ISO datetime
+  end?: string;    // ISO datetime
+  body?: string;
+  location?: string;
+  attendees?: Array<{ email: string; name?: string; type?: 'Required' | 'Optional' | 'Resource' }>;
+  isOnlineMeeting?: boolean;
+}
+
+/**
+ * Update an existing calendar event.
+ */
+export async function updateEvent(
+  options: UpdateEventOptions
+): Promise<OwaResponse<CreatedEvent>> {
+  const { token, eventId, subject, start, end, body, location, attendees, isOnlineMeeting } = options;
+  const url = `https://outlook.office.com/api/v2.0/me/events/${encodeURIComponent(eventId)}`;
+
+  const eventBody: Record<string, unknown> = {};
+
+  if (subject !== undefined) {
+    eventBody.Subject = subject;
+  }
+
+  if (start !== undefined) {
+    eventBody.Start = {
+      DateTime: start,
+      TimeZone: 'Europe/Amsterdam',
+    };
+  }
+
+  if (end !== undefined) {
+    eventBody.End = {
+      DateTime: end,
+      TimeZone: 'Europe/Amsterdam',
+    };
+  }
+
+  if (body !== undefined) {
+    eventBody.Body = {
+      ContentType: 'Text',
+      Content: body,
+    };
+  }
+
+  if (location !== undefined) {
+    eventBody.Location = {
+      DisplayName: location,
+    };
+  }
+
+  if (attendees !== undefined) {
+    eventBody.Attendees = attendees.map(a => ({
+      EmailAddress: {
+        Address: a.email,
+        Name: a.name || a.email,
+      },
+      Type: a.type || 'Required',
+    }));
+  }
+
+  if (isOnlineMeeting !== undefined) {
+    eventBody.IsOnlineMeeting = isOnlineMeeting;
+    if (isOnlineMeeting) {
+      eventBody.OnlineMeetingProvider = 'TeamsForBusiness';
+    }
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+        Accept: 'application/json',
+        Prefer: 'outlook.timezone="Europe/Amsterdam"',
+      },
+      body: JSON.stringify(eventBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        ok: false,
+        status: response.status,
+        error: {
+          code: `HTTP_${response.status}`,
+          message: errorText || response.statusText,
+        },
+      };
+    }
+
+    const data = (await response.json()) as CreatedEvent;
+    return { ok: true, status: response.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      error: {
+        code: 'NETWORK_ERROR',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      },
+    };
+  }
+}
+
 export interface Room {
   Address: string;
   Name: string;

@@ -7,6 +7,8 @@ import { findtimeCommand } from './commands/findtime.js';
 import { respondCommand } from './commands/respond.js';
 import { createEventCommand } from './commands/create-event.js';
 import { deleteEventCommand } from './commands/delete-event.js';
+import { findCommand } from './commands/find.js';
+import { updateEventCommand } from './commands/update-event.js';
 
 const program = new Command();
 
@@ -22,5 +24,7 @@ program.addCommand(findtimeCommand);
 program.addCommand(respondCommand);
 program.addCommand(createEventCommand);
 program.addCommand(deleteEventCommand);
+program.addCommand(findCommand);
+program.addCommand(updateEventCommand);
 
 program.parse();
