@@ -246,7 +246,11 @@ async function tryExtractToken(
     context = await chromium.launchPersistentContext(userDataDir, {
       headless,
       channel: 'chrome',
-      args: ['--disable-blink-features=AutomationControlled'],
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--password-store=basic',  // Use basic store instead of mock keychain
+      ],
+      ignoreDefaultArgs: ['--use-mock-keychain'],  // Don't use mock keychain
     });
 
     const page = context.pages()[0] || await context.newPage();
@@ -343,7 +347,11 @@ export async function startKeepaliveSession(options: { intervalMinutes: number; 
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless,
     channel: 'chrome',
-    args: ['--disable-blink-features=AutomationControlled'],
+    args: [
+      '--disable-blink-features=AutomationControlled',
+      '--password-store=basic',  // Use basic store instead of mock keychain
+    ],
+    ignoreDefaultArgs: ['--use-mock-keychain'],  // Don't use mock keychain
   });
 
   const page = context.pages()[0] || await context.newPage();
