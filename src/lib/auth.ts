@@ -2,8 +2,65 @@ import { chromium } from 'playwright';
 import { setTimeout as sleep } from 'timers/promises';
 import { homedir } from 'os';
 import { join } from 'path';
-import { readFile, writeFile, mkdir, unlink, open } from 'fs/promises';
+import { readFile, writeFile, mkdir, unlink, open, readlink, rm } from 'fs/promises';
 import { validateSession } from './owa-client.js';
+
+/**
+ * Clean up stale Chrome SingletonLock if the owning process is no longer running.
+ * Chrome creates a symlink at `<profile>/SingletonLock` pointing to `hostname-pid`.
+ * If that process is dead, we can safely remove the lock to allow a new instance.
+ */
+async function cleanStaleChromeProfile(profileDir: string): Promise<void> {
+  const singletonLock = join(profileDir, 'SingletonLock');
+
+  try {
+    // SingletonLock is a symlink pointing to "hostname-pid"
+    const target = await readlink(singletonLock);
+    const match = target.match(/-(\d+)$/);
+
+    if (match) {
+      const pid = parseInt(match[1], 10);
+
+      // Check if process is still running
+      const isRunning = isProcessRunning(pid);
+
+      if (!isRunning) {
+        // Process is dead, clean up stale lock files
+        console.log(`Cleaning up stale browser lock (dead PID ${pid})...`);
+
+        // Remove all singleton-related files
+        const filesToRemove = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+        for (const file of filesToRemove) {
+          try {
+            await rm(join(profileDir, file), { force: true });
+          } catch {
+            // Ignore errors for individual files
+          }
+        }
+      }
+    }
+  } catch {
+    // SingletonLock doesn't exist or isn't a symlink - nothing to clean
+  }
+}
+
+/**
+ * Check if a process with the given PID is currently running.
+ */
+function isProcessRunning(pid: number): boolean {
+  try {
+    // Sending signal 0 checks if process exists without actually sending a signal
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    // ESRCH = No such process (not running)
+    // EPERM = Process exists but we don't have permission (still running)
+    if (err && typeof err === 'object' && 'code' in err) {
+      return err.code === 'EPERM';
+    }
+    return false;
+  }
+}
 
 const LOCK_FILE = join(homedir(), '.config', 'clippy', 'browser.lock');
 const LOCK_TIMEOUT = 60000; // Consider lock stale after 60s
@@ -182,6 +239,9 @@ async function tryExtractToken(
     // Ensure the directory exists
     await mkdir(userDataDir, { recursive: true });
 
+    // Clean up stale Chrome lock if previous process crashed
+    await cleanStaleChromeProfile(userDataDir);
+
     // Launch persistent context - session will be remembered
     context = await chromium.launchPersistentContext(userDataDir, {
       headless,
@@ -271,6 +331,9 @@ export async function startKeepaliveSession(options: { intervalMinutes: number; 
   // Use a dedicated profile directory for keepalive (isolated from other sessions)
   const userDataDir = join(homedir(), '.config', 'clippy', 'keepalive-profile');
   await mkdir(userDataDir, { recursive: true });
+
+  // Clean up stale Chrome lock if previous process crashed
+  await cleanStaleChromeProfile(userDataDir);
 
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless,
