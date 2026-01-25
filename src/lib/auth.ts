@@ -233,8 +233,8 @@ async function tryExtractToken(
 
   let context;
   try {
-    // Use a dedicated profile directory for Clippy (persists login session)
-    const userDataDir = userDataDirOverride || join(homedir(), '.config', 'clippy', 'browser-profile');
+    // Use the shared profile directory (persists login session)
+    const userDataDir = userDataDirOverride || getProfileDir();
 
     // Ensure the directory exists
     await mkdir(userDataDir, { recursive: true });
@@ -325,11 +325,16 @@ async function tryExtractToken(
   }
 }
 
+// Default profile directory - can be overridden via CLIPPY_PROFILE_DIR env var
+export function getProfileDir(): string {
+  return process.env.CLIPPY_PROFILE_DIR || join(homedir(), '.config', 'clippy', 'browser-profile');
+}
+
 export async function startKeepaliveSession(options: { intervalMinutes: number; headless?: boolean }): Promise<void> {
   const { intervalMinutes, headless = false } = options;
 
-  // Use a dedicated profile directory for keepalive (isolated from other sessions)
-  const userDataDir = join(homedir(), '.config', 'clippy', 'keepalive-profile');
+  // Use the shared profile directory (same as login/refresh)
+  const userDataDir = getProfileDir();
   await mkdir(userDataDir, { recursive: true });
 
   // Clean up stale Chrome lock if previous process crashed
