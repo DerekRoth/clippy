@@ -373,6 +373,8 @@ export async function startKeepaliveSession(options: { intervalMinutes: number; 
 
   console.log(`Keepalive active. Refreshing every ${intervalMinutes} minutes.`);
 
+  const healthFile = join(homedir(), '.config', 'clippy', 'keepalive-health.txt');
+
   // Main keepalive loop
   while (true) {
     // Give some time for requests to fire and tokens to be captured
@@ -380,6 +382,8 @@ export async function startKeepaliveSession(options: { intervalMinutes: number; 
 
     if (lastToken) {
       await setCachedToken(lastToken, lastGraphToken || undefined);
+      // Write health file for external monitoring
+      await writeFile(healthFile, new Date().toISOString(), 'utf-8').catch(() => {});
     }
 
     await sleep(intervalMinutes * 60 * 1000);
