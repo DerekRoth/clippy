@@ -64,6 +64,43 @@ function isProcessRunning(pid: number): boolean {
 
 const LOCK_FILE = join(homedir(), '.config', 'clippy', 'browser.lock');
 const LOCK_TIMEOUT = 60000; // Consider lock stale after 60s
+const NEEDS_LOGIN_FILE = join(homedir(), '.config', 'clippy', 'needs-login');
+
+/**
+ * Check if a needs-login marker exists (session expired, needs manual re-auth).
+ */
+export async function needsLogin(): Promise<boolean> {
+  try {
+    await readFile(NEEDS_LOGIN_FILE);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Set the needs-login marker (called when session expires).
+ */
+export async function setNeedsLogin(reason: string): Promise<void> {
+  try {
+    const cacheDir = join(homedir(), '.config', 'clippy');
+    await mkdir(cacheDir, { recursive: true });
+    await writeFile(NEEDS_LOGIN_FILE, `${new Date().toISOString()}: ${reason}`, 'utf-8');
+  } catch {
+    // Ignore write errors
+  }
+}
+
+/**
+ * Clear the needs-login marker (called after successful login).
+ */
+export async function clearNeedsLogin(): Promise<void> {
+  try {
+    await unlink(NEEDS_LOGIN_FILE);
+  } catch {
+    // Ignore if doesn't exist
+  }
+}
 
 interface LockHandle {
   release: () => Promise<void>;
@@ -391,6 +428,15 @@ export function getProfileDir(): string {
 export async function startKeepaliveSession(options: { intervalMinutes: number; headless?: boolean }): Promise<void> {
   const { intervalMinutes, headless = false } = options;
 
+  // Check if needs-login marker exists - if so, exit immediately without opening browser
+  if (await needsLogin()) {
+    console.log(`[${new Date().toISOString()}] Session expired. Run 'clippy login --interactive' to re-authenticate.`);
+    console.log(`[${new Date().toISOString()}] Keepalive will resume automatically after login.`);
+    // Exit with code 0 so launchd doesn't spam restarts (ThrottleInterval still applies)
+    // The marker file prevents us from doing anything until manual login clears it
+    process.exit(0);
+  }
+
   // Check if we have saved storage state (cookies as JSON)
   const storageStatePath = getStorageStatePath();
   let hasStorageState = false;
@@ -439,8 +485,72 @@ export async function startKeepaliveSession(options: { intervalMinutes: number; 
     }
   });
 
+  // Helper: check if we landed on a login page
+  const isLoginPage = (url: string): boolean => {
+    return url.includes('/login') || 
+           url.includes('login.microsoftonline.com') || 
+           url.includes('login.live.com') ||
+           url.includes('/oauth2/') ||
+           url.includes('/common/oauth2/');
+  };
+
+  // Helper: simulate user activity by clicking on UI elements
+  const simulateActivity = async (): Promise<void> => {
+    try {
+      // Try clicking on Inbox folder to simulate real user interaction
+      const inboxSelectors = [
+        '[data-folder-name="inbox"]',
+        '[aria-label*="Inbox"]',
+        '[aria-label*="Postvak IN"]', // Dutch
+        'button[title*="Inbox"]',
+        'div[role="treeitem"][aria-label*="Inbox"]',
+      ];
+      
+      for (const selector of inboxSelectors) {
+        const element = await page.$(selector);
+        if (element) {
+          await element.click().catch(() => {});
+          console.log(`[${new Date().toISOString()}] Clicked inbox element: ${selector}`);
+          await sleep(1000);
+          return;
+        }
+      }
+      
+      // Fallback: try clicking the first email in the list to trigger activity
+      const emailSelectors = [
+        '[role="option"]',
+        '[aria-label*="message"]',
+        '.customScrollBar div[role="listbox"] > div:first-child',
+      ];
+      
+      for (const selector of emailSelectors) {
+        const element = await page.$(selector);
+        if (element) {
+          await element.click().catch(() => {});
+          console.log(`[${new Date().toISOString()}] Clicked email element: ${selector}`);
+          await sleep(1000);
+          return;
+        }
+      }
+      
+      console.log(`[${new Date().toISOString()}] No clickable elements found, will rely on page reload`);
+    } catch (err) {
+      console.log(`[${new Date().toISOString()}] Activity simulation failed: ${err instanceof Error ? err.message : 'unknown'}`);
+    }
+  };
+
   console.log(`Opening Outlook session (headless=${headless ? 'true' : 'false'})...`);
   await page.goto('https://outlook.office.com/mail/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  // Immediately check if we landed on a login page
+  const initialUrl = page.url();
+  if (isLoginPage(initialUrl)) {
+    console.error(`[${new Date().toISOString()}] CRITICAL: Landed on login page! Session expired.`);
+    console.error(`[${new Date().toISOString()}] Run 'clippy login --interactive' to re-authenticate.`);
+    await setNeedsLogin('Landed on login page at startup');
+    await browser.close();
+    process.exit(0);
+  }
 
   console.log(`Keepalive active. Refreshing every ${intervalMinutes} minutes.`);
 
@@ -450,6 +560,16 @@ export async function startKeepaliveSession(options: { intervalMinutes: number; 
   while (true) {
     // Give some time for requests to fire and tokens to be captured
     await sleep(2000);
+
+    // Check current URL for login redirect
+    const currentUrl = page.url();
+    if (isLoginPage(currentUrl)) {
+      console.error(`[${new Date().toISOString()}] CRITICAL: Redirected to login page! Session expired.`);
+      console.error(`[${new Date().toISOString()}] Run 'clippy login --interactive' to re-authenticate.`);
+      await setNeedsLogin('Redirected to login page during keepalive');
+      await browser.close();
+      process.exit(0);
+    }
 
     if (lastToken) {
       // Validate the token before caching it
@@ -491,11 +611,40 @@ export async function startKeepaliveSession(options: { intervalMinutes: number; 
     lastGraphToken = null;
 
     try {
+      // First reload the page
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+      
+      // Check if reload landed us on login page
+      const afterReloadUrl = page.url();
+      if (isLoginPage(afterReloadUrl)) {
+        console.error(`[${new Date().toISOString()}] CRITICAL: Reload landed on login page! Session expired.`);
+        console.error(`[${new Date().toISOString()}] Run 'clippy login --interactive' to re-authenticate.`);
+        await setNeedsLogin('Reload landed on login page');
+        await browser.close();
+        process.exit(0);
+      }
+      
+      // Simulate user activity to keep session warm
+      await sleep(2000); // Wait for page to settle
+      await simulateActivity();
+      
     } catch {
       // If reload fails, try to navigate again
       try {
         await page.goto('https://outlook.office.com/mail/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+        
+        // Check if navigation landed us on login page
+        const afterNavUrl = page.url();
+        if (isLoginPage(afterNavUrl)) {
+          console.error(`[${new Date().toISOString()}] CRITICAL: Navigation landed on login page! Session expired.`);
+          console.error(`[${new Date().toISOString()}] Run 'clippy login --interactive' to re-authenticate.`);
+          await setNeedsLogin('Navigation landed on login page');
+          await browser.close();
+          process.exit(0);
+        }
+        
+        await sleep(2000);
+        await simulateActivity();
       } catch {
         // ignore, will retry on next loop
       }

@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { resolveAuth } from '../lib/auth.js';
+import { resolveAuth, clearNeedsLogin } from '../lib/auth.js';
 import { ensureConfigDir, saveConfig } from '../lib/config.js';
 
 export const loginCommand = new Command('login')
@@ -35,6 +35,8 @@ export const loginCommand = new Command('login')
         await saveConfig({
           lastValidatedAt: new Date().toISOString(),
         });
+        // Clear the needs-login marker so keepalive can resume
+        await clearNeedsLogin();
       } catch (err) {
         // Non-fatal: continue even if config save fails
         console.warn('Warning: Could not save config');
