@@ -201,8 +201,12 @@ export async function extractTokenViaPlaywright(
 ): Promise<PlaywrightTokenResult> {
   const { headless = true, timeout = 15000, userDataDir, fallbackToVisible = true } = options;
 
+  console.log(`[extractToken] Starting with headless=${headless}, timeout=${timeout}`);
+
   // Try headless first (fast path for already logged-in users)
   const result = await tryExtractToken(headless, timeout, userDataDir);
+
+  console.log(`[extractToken] Headless result: success=${result.success}, error=${result.error || 'none'}`);
 
   if (result.success) {
     return result;
@@ -211,7 +215,10 @@ export async function extractTokenViaPlaywright(
   // If headless failed and we haven't tried visible yet, retry with visible browser
   if (headless && fallbackToVisible) {
     console.log('Session not found. Opening browser for login...');
-    return tryExtractToken(false, 120000, userDataDir); // 2 minutes for manual login
+    console.log('[extractToken] Falling back to visible browser with 120s timeout...');
+    const visibleResult = await tryExtractToken(false, 120000, userDataDir);
+    console.log(`[extractToken] Visible result: success=${visibleResult.success}, error=${visibleResult.error || 'none'}`);
+    return visibleResult;
   }
 
   return result;
@@ -227,14 +234,19 @@ async function tryExtractToken(
   timeout: number,
   userDataDirOverride?: string
 ): Promise<PlaywrightTokenResult> {
+  console.log(`[tryExtract] Starting: headless=${headless}, timeout=${timeout}`);
+  
   // Acquire lock to prevent concurrent browser access
+  console.log(`[tryExtract] Acquiring lock (${headless ? 5000 : 30000}ms timeout)...`);
   const lock = await acquireLock(headless ? 5000 : 30000);
   if (!lock) {
+    console.log('[tryExtract] Failed to acquire lock');
     return {
       success: false,
       error: 'Another browser session is in progress, please wait',
     };
   }
+  console.log('[tryExtract] Lock acquired');
 
   let browser;
   let context;
@@ -245,10 +257,12 @@ async function tryExtractToken(
     try {
       await readFile(storageStatePath);
       hasStorageState = true;
+      console.log('[tryExtract] Found storage state file');
     } catch {
-      // No storage state file yet
+      console.log('[tryExtract] No storage state file');
     }
 
+    console.log(`[tryExtract] Launching browser (headless=${headless})...`);
     // Launch regular browser (not persistent context - storageState works better this way)
     browser = await chromium.launch({
       headless,
@@ -257,13 +271,17 @@ async function tryExtractToken(
         '--disable-blink-features=AutomationControlled',
       ],
     });
+    console.log('[tryExtract] Browser launched');
 
     // Create context with storage state if available
+    console.log('[tryExtract] Creating context...');
     context = await browser.newContext(
       hasStorageState ? { storageState: storageStatePath } : undefined
     );
+    console.log('[tryExtract] Context created');
 
     const page = await context.newPage();
+    console.log('[tryExtract] Page created');
 
     let capturedToken: string | null = null;
     let capturedGraphToken: string | null = null;
@@ -293,16 +311,25 @@ async function tryExtractToken(
       console.log('Please complete the login process in the browser...');
     }
 
+    console.log(`[tryExtract] Navigating to Outlook (timeout=${timeout}ms)...`);
     await page.goto('https://outlook.office.com/mail/', {
       waitUntil: 'domcontentloaded',
       timeout,
     });
+    console.log('[tryExtract] Page loaded (domcontentloaded)');
 
     // Wait for token to be captured (max timeout)
+    console.log(`[tryExtract] Waiting for token capture (max ${timeout}ms)...`);
     const startTime = Date.now();
     while (!capturedToken && (Date.now() - startTime) < timeout) {
       await page.waitForTimeout(500);
+      // Log progress every 10 seconds
+      const elapsed = Date.now() - startTime;
+      if (elapsed % 10000 < 500) {
+        console.log(`[tryExtract] Still waiting for token... ${Math.round(elapsed / 1000)}s elapsed`);
+      }
     }
+    console.log(`[tryExtract] Token wait finished. capturedToken=${!!capturedToken}`);
 
     // If we have the Outlook token, wait a bit more to try to capture Graph token
     if (capturedToken && !capturedGraphToken) {
@@ -338,6 +365,8 @@ async function tryExtractToken(
         : 'Timeout: No Bearer token captured. Make sure you completed the login.'
     };
   } catch (err) {
+    console.error('[tryExtract] EXCEPTION:', err instanceof Error ? err.message : err);
+    console.error('[tryExtract] Stack:', err instanceof Error ? err.stack : 'no stack');
     if (browser) {
       await browser.close();
     }
