@@ -283,6 +283,11 @@ async function tryExtractToken(
     const page = await context.newPage();
     console.log('[tryExtract] Page created');
 
+    // Debug: track page/browser close events
+    page.on('close', () => console.log('[tryExtract] EVENT: page closed'));
+    context.on('close', () => console.log('[tryExtract] EVENT: context closed'));
+    browser.on('disconnected', () => console.log('[tryExtract] EVENT: browser disconnected'));
+
     let capturedToken: string | null = null;
     let capturedGraphToken: string | null = null;
 
@@ -316,7 +321,7 @@ async function tryExtractToken(
       waitUntil: 'domcontentloaded',
       timeout,
     });
-    console.log('[tryExtract] Page loaded (domcontentloaded)');
+    console.log(`[tryExtract] Page loaded (domcontentloaded). URL: ${page.url()}`);
 
     // Wait for token to be captured (max timeout)
     console.log(`[tryExtract] Waiting for token capture (max ${timeout}ms)...`);
