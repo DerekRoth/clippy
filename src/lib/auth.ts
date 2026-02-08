@@ -506,22 +506,54 @@ async function tryExtractToken(
       console.log('Please complete the login process in the browser...');
     }
 
-    console.log(`[tryExtract] Navigating to Outlook (timeout=${timeout}ms)...`);
+    // For visible mode, use a short timeout for the initial page load only;
+    // the user may need much longer to complete the multi-step login flow.
+    const navTimeout = headless ? timeout : 60000;
+    console.log(`[tryExtract] Navigating to Outlook (navTimeout=${navTimeout}ms)...`);
     await page.goto('https://outlook.office.com/mail/', {
       waitUntil: 'domcontentloaded',
-      timeout,
+      timeout: navTimeout,
     });
     console.log(`[tryExtract] Page loaded (domcontentloaded). URL: ${page.url()}`);
 
-    // Wait for token to be captured (max timeout)
-    console.log(`[tryExtract] Waiting for token capture (max ${timeout}ms)...`);
-    const startTime = Date.now();
-    while (!capturedToken && (Date.now() - startTime) < timeout) {
+    // Wait for token to be captured.
+    // In visible mode, don't count time while the user is still on a login page —
+    // only start the countdown once they land on Outlook.
+    const absoluteMax = headless ? timeout : 600000; // 10 min hard cap for visible
+    const tokenTimeout = headless ? timeout : 60000; // 60s after reaching Outlook
+    console.log(`[tryExtract] Waiting for token capture (absoluteMax=${absoluteMax}ms, tokenTimeout=${tokenTimeout}ms)...`);
+    const absoluteStart = Date.now();
+    let tokenCountdownStart: number | null = null;
+
+    while (!capturedToken && (Date.now() - absoluteStart) < absoluteMax) {
       await page.waitForTimeout(500);
+
+      if (!headless) {
+        const currentUrl = page.url();
+        const onOutlook = currentUrl.includes('outlook.office.com') || currentUrl.includes('outlook.office365.com');
+
+        if (onOutlook && tokenCountdownStart === null) {
+          // On Outlook — start (or restart) the token capture countdown
+          console.log('[tryExtract] On Outlook, token capture countdown started...');
+          tokenCountdownStart = Date.now();
+        } else if (!onOutlook && tokenCountdownStart !== null) {
+          // URL left Outlook (login/SSO page) — stop the countdown
+          console.log('[tryExtract] Left Outlook, pausing countdown...');
+          tokenCountdownStart = null;
+        }
+
+        // If we've been on Outlook for longer than tokenTimeout without capturing, give up
+        if (tokenCountdownStart !== null && (Date.now() - tokenCountdownStart) >= tokenTimeout) {
+          console.log(`[tryExtract] Token capture timeout after ${tokenTimeout}ms on Outlook`);
+          break;
+        }
+      }
+
       // Log progress every 10 seconds
-      const elapsed = Date.now() - startTime;
+      const elapsed = Date.now() - absoluteStart;
       if (elapsed % 10000 < 500) {
-        console.log(`[tryExtract] Still waiting for token... ${Math.round(elapsed / 1000)}s elapsed`);
+        const phase = tokenCountdownStart !== null ? 'on Outlook' : 'on login page';
+        console.log(`[tryExtract] Still waiting for token... ${Math.round(elapsed / 1000)}s elapsed (${phase})`);
       }
     }
     console.log(`[tryExtract] Token wait finished. capturedToken=${!!capturedToken}`);
